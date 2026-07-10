@@ -25,6 +25,7 @@ export const QuizGame: React.FC = () => {
   const [selected, setSelected] = useState<number | null>(null);
   const [feedback, setFeedback] = useState<'correct' | 'wrong' | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
+  const [correctIndex, setCorrectIndex] = useState<number | null>(null);
   const [result, setResult] = useState<{
     scoreEarned: number;
     bonusEarned: number;
@@ -91,6 +92,7 @@ export const QuizGame: React.FC = () => {
       setQuestion(data);
       setSelected(null);
       setFeedback(null);
+      setCorrectIndex(null);
       setTimeLeft(TIMER_SECONDS);
       setScreen('question');
       answeredRef.current = false; // новый вопрос — снимаем блокировку
@@ -140,6 +142,8 @@ export const QuizGame: React.FC = () => {
       }
 
       setFeedback(data.wasCorrect ? 'correct' : 'wrong');
+      setCorrectIndex(data.correctOptionIndex ?? null);
+
 
       if (data.isFinished) {
         setResult({
@@ -261,6 +265,8 @@ export const QuizGame: React.FC = () => {
                 stateClasses = 'border-emerald-500 bg-emerald-950/50 text-emerald-300';
               } else if (index === selected && feedback === 'wrong') {
                 stateClasses = 'border-red-500 bg-red-950/50 text-red-300';
+                } else if (feedback === 'wrong' && index === correctIndex) {
+            stateClasses = 'border-emerald-500 bg-emerald-950/50 text-emerald-300';
               } else {
                 stateClasses = 'border-slate-800 bg-slate-800/40 text-slate-500';
               }

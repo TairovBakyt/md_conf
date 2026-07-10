@@ -25,6 +25,11 @@ export const Dashboard: React.FC = () => {
       return;
     }
 
+    if (user.is_admin) {
+      navigate('/admin');
+      return;
+    }
+
     const fetchProfile = async () => {
       try {
         const response = await fetch(`${API_URL}/api/user/${user.id}`);

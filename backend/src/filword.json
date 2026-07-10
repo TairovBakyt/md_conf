@@ -1,0 +1,32 @@
+{
+  "grid": [
+    "PCKIUKIIUWUJGEQ",
+    "YHBZZZBRANCHTMV",
+    "SCRUMKVDOCKEREX",
+    "AUPJINMMXBSWSGK",
+    "XWHVRUZPVLQJFVR",
+    "FJDPLEGACYEXIDX",
+    "ZRPYTHONYFVKUEG",
+    "CHLHXJNZKLISJPI",
+    "ODPBUSSTCPGQDLT",
+    "VMQJNBEEMERGEOH",
+    "GKNSOEKCACHEWYU",
+    "FYCPKUFAGILEKUB",
+    "BAOIGYYFSYFPZYY",
+    "CETNUNMNPMABRGX",
+    "LAKYQGAVAUXHHWL"
+  ],
+  "words": ["AGILE", "BRANCH", "CACHE", "DEPLOY", "DOCKER", "GITHUB", "LEGACY", "MERGE", "PYTHON", "SCRUM"],
+  "wordPositions": {
+    "AGILE":  { "start": [11, 7],  "end": [11, 11] },
+    "BRANCH": { "start": [1, 6],   "end": [1, 11] },
+    "CACHE":  { "start": [10, 7],  "end": [10, 11] },
+    "DEPLOY": { "start": [5, 13],  "end": [10, 13] },
+    "DOCKER": { "start": [2, 7],   "end": [2, 12] },
+    "GITHUB": { "start": [6, 14],  "end": [11, 14] },
+    "LEGACY": { "start": [5, 4],   "end": [5, 9] },
+    "MERGE":  { "start": [9, 8],   "end": [9, 12] },
+    "PYTHON": { "start": [6, 2],   "end": [6, 7] },
+    "SCRUM":  { "start": [2, 0],   "end": [2, 4] }
+  }
+}
