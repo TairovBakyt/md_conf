@@ -6,9 +6,14 @@ import { API_URL } from '../config';
 
 interface BoardData {
   grid: string[];
-  words: string[]; // используем только для подсчёта общего количества, не отображаем сами слова
+  words: string[];
   foundWords: string[];
   secondsLeft: number;
+}
+
+interface WordPosition {
+  start: [number, number];
+  end: [number, number];
 }
 
 type ScreenState = 'loading' | 'playing' | 'finished' | 'already-passed' | 'error';
@@ -30,6 +35,7 @@ export const FilwordGame: React.FC = () => {
   const [feedback, setFeedback] = useState<{ type: 'ok' | 'bad'; text: string } | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
   const [result, setResult] = useState<{ totalEarned: number; message: string } | null>(null);
+  const [wordPositions, setWordPositions] = useState<Record<string, WordPosition> | null>(null);
 
   const [selectionStart, setSelectionStart] = useState<Cell | null>(null);
   const [selectionEnd, setSelectionEnd] = useState<Cell | null>(null);
@@ -87,6 +93,7 @@ export const FilwordGame: React.FC = () => {
       }
 
       if (data.isFinished) {
+        setWordPositions(data.wordPositions ?? null);
         setScreen('finished');
         return;
       }
@@ -136,6 +143,7 @@ export const FilwordGame: React.FC = () => {
           totalEarned: data.totalEarned ?? 0,
           message: 'Время вышло',
         });
+        setWordPositions(data.wordPositions ?? null);
         setScreen('finished');
       }
     } catch (err) {
@@ -177,6 +185,7 @@ export const FilwordGame: React.FC = () => {
           totalEarned: data.totalEarned ?? 0,
           message: data.message || 'Все слова найдены!',
         });
+        setWordPositions(data.wordPositions ?? null);
         setTimeout(() => setScreen('finished'), 800);
       }
     } catch (err) {
@@ -190,10 +199,6 @@ export const FilwordGame: React.FC = () => {
       handleSubmitWord();
     }
   };
-
-  // ==========================================
-  // ВЫДЕЛЕНИЕ МЫШКОЙ / ПАЛЬЦЕМ ПО СЕТКЕ
-  // ==========================================
 
   const getSelectedCells = (start: Cell, end: Cell): Cell[] => {
     if (start.row === end.row) {
@@ -215,6 +220,26 @@ export const FilwordGame: React.FC = () => {
     if (!selectionStart || !selectionEnd) return false;
     const cells = getSelectedCells(selectionStart, selectionEnd);
     return cells.some((c) => c.row === row && c.col === col);
+  };
+
+  const getWordCells = (start: [number, number], end: [number, number]): Cell[] => {
+    const [r1, c1] = start;
+    const [r2, c2] = end;
+    const cells: Cell[] = [];
+    const steps = Math.max(Math.abs(r2 - r1), Math.abs(c2 - c1));
+    const dr = steps === 0 ? 0 : (r2 - r1) / steps;
+    const dc = steps === 0 ? 0 : (c2 - c1) / steps;
+    for (let i = 0; i <= steps; i++) {
+      cells.push({ row: r1 + dr * i, col: c1 + dc * i });
+    }
+    return cells;
+  };
+
+  const isCellInAnyWord = (row: number, col: number): boolean => {
+    if (!wordPositions) return false;
+    return Object.values(wordPositions).some(({ start, end }) =>
+      getWordCells(start, end).some((c) => c.row === row && c.col === col)
+    );
   };
 
   const finalizeSelection = () => {
@@ -313,7 +338,7 @@ export const FilwordGame: React.FC = () => {
 
   if (screen === 'finished') {
     return (
-      <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center gap-4 px-4 text-center">
+      <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center gap-4 px-4 py-8 text-center">
         <span className="text-3xl">🧩</span>
         <h1 className="text-slate-100 text-xl font-semibold">Филворд завершён</h1>
         {result && (
@@ -324,6 +349,37 @@ export const FilwordGame: React.FC = () => {
             </p>
           </div>
         )}
+
+        {board && wordPositions && (
+          <div className="bg-slate-950 rounded-2xl p-4 mt-2">
+            <p className="text-xs text-slate-500 mb-3">Все слова были здесь:</p>
+            <div className="bg-slate-900 rounded-xl p-2 overflow-x-auto">
+              <div
+                className="grid gap-[2px] mx-auto"
+                style={{ gridTemplateColumns: `repeat(${board.grid.length}, 1fr)`, width: 'fit-content' }}
+              >
+                {board.grid.map((row, rowIndex) =>
+                  row.split('').map((letter, colIndex) => {
+                    const inWord = isCellInAnyWord(rowIndex, colIndex);
+                    return (
+                      <div
+                        key={`${rowIndex}-${colIndex}`}
+                        className={`w-5 h-5 flex items-center justify-center text-[10px] font-mono rounded-sm ${
+                          inWord
+                            ? 'bg-emerald-600 text-white'
+                            : 'bg-slate-800 text-slate-500'
+                        }`}
+                      >
+                        {letter}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         <button
           onClick={() => navigate('/dashboard')}
           className="mt-4 bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-lg px-5 py-2.5 transition-colors"
