@@ -126,32 +126,35 @@ export const FilwordGame: React.FC = () => {
   };
 
   const handleTimeout = async () => {
-    if (finishedRef.current) return;
-    finishedRef.current = true;
-    if (!user) return;
+  if (finishedRef.current) return;
+  if (!user) return;
 
-    try {
-      const res = await fetch(`${API_URL}/api/filword/submit`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: user.id, word: '' }),
+  try {
+    const res = await fetch(`${API_URL}/api/filword/submit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: user.id, word: '' }),
+    });
+    const data = await res.json();
+
+    if (data.isFinished) {
+      finishedRef.current = true;
+      setResult({
+        totalEarned: data.totalEarned ?? 0,
+        message: 'Время вышло',
       });
-      const data = await res.json();
-
-      if (data.isFinished) {
-        setResult({
-          totalEarned: data.totalEarned ?? 0,
-          message: 'Время вышло',
-        });
-        setWordPositions(data.wordPositions ?? null);
-        setScreen('finished');
-      }
-    } catch (err) {
-      console.error(err);
-      setErrorMsg('Сервер недоступен');
-      setScreen('error');
+      setWordPositions(data.wordPositions ?? null);
+      setScreen('finished');
+    } else {
+      // сервер ещё не считает время истёкшим (небольшая рассинхронизация часов) — повторим через секунду
+      setTimeout(handleTimeout, 1000);
     }
-  };
+  } catch (err) {
+    console.error(err);
+    setErrorMsg('Сервер недоступен');
+    setScreen('error');
+  }
+};
 
   const handleSubmitWord = async (wordOverride?: string) => {
     const trimmed = (wordOverride ?? wordInput).trim();
