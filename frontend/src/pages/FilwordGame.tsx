@@ -183,11 +183,12 @@ export const FilwordGame: React.FC = () => {
         if (timerRef.current) clearInterval(timerRef.current);
         setResult({
           totalEarned: data.totalEarned ?? 0,
-          message: data.message || 'Все слова найдены!',
+          message: data.isTimeOut ? 'Время вышло' : (data.message || 'Все слова найдены!'),
         });
         setWordPositions(data.wordPositions ?? null);
         setTimeout(() => setScreen('finished'), 800);
       }
+
     } catch (err) {
       console.error(err);
       setFeedback({ type: 'bad', text: 'Сервер недоступен' });
