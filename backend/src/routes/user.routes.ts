@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { pool } from '../db';
-import questions from '../questions.json';
+
 
 const router = Router();
 
@@ -16,8 +16,8 @@ router.get('/:id', async (req: Request, res: Response) => {
 
     const user = userResult.rows[0];
 
-    const sessionCheck = await pool.query('SELECT current_question_index FROM quiz_sessions WHERE user_id = $1', [userId]);
-    const isQuizPassed = sessionCheck.rows.length > 0 && sessionCheck.rows[0].current_question_index >= questions.length;
+    const quizResultCheck = await pool.query('SELECT 1 FROM quiz_final_results WHERE user_id = $1', [userId]);
+    const isQuizPassed = quizResultCheck.rows.length > 0;
 
     const filwordSessionCheck = await pool.query('SELECT is_finished FROM filword_sessions WHERE user_id = $1', [userId]);
     const isFilwordPassed = filwordSessionCheck.rows.length > 0 && filwordSessionCheck.rows[0].is_finished;

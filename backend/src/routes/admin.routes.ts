@@ -102,4 +102,44 @@ router.post('/toggle-admin', async (req: Request, res: Response) => {
   }
 });
 
+// Шаг 1: открыть комнату ожидания у всех участников (редиректит их на /quiz)
+router.post('/open-quiz', async (req: Request, res: Response) => {
+  const { adminId } = req.body;
+
+  try {
+    const adminCheck = await pool.query('SELECT is_admin FROM users WHERE id = $1', [adminId]);
+    if (!adminCheck.rows[0]?.is_admin) {
+      return res.status(403).json({ error: 'Доступ запрещён' });
+    }
+
+    await pool.query('UPDATE event_settings SET quiz_unlocked = true, quiz_start_time = NULL WHERE id = 1');
+
+    return res.json({ success: true });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Ошибка открытия викторины' });
+  }
+});
+
+// Шаг 2: запустить отсчёт — у всех одновременно начинает тикать первый вопрос
+router.post('/start-quiz-live', async (req: Request, res: Response) => {
+  const { adminId } = req.body;
+
+  try {
+    const adminCheck = await pool.query('SELECT is_admin FROM users WHERE id = $1', [adminId]);
+    if (!adminCheck.rows[0]?.is_admin) {
+      return res.status(403).json({ error: 'Доступ запрещён' });
+    }
+
+    await pool.query('DELETE FROM quiz_answers');
+    await pool.query('DELETE FROM quiz_final_results');
+    await pool.query('UPDATE event_settings SET quiz_start_time = NOW() WHERE id = 1');
+
+    return res.json({ success: true });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Ошибка запуска викторины' });
+  }
+});
+
 export default router;

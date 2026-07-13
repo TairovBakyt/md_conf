@@ -5,8 +5,8 @@ const router = Router();
 
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const result = await pool.query('SELECT quiz_unlocked, filword_unlocked FROM event_settings WHERE id = 1');
-    const row = result.rows[0] || { quiz_unlocked: false, filword_unlocked: false };
+    const result = await pool.query('SELECT quiz_unlocked, filword_unlocked,quiz_start_time FROM event_settings WHERE id = 1');
+    const row = result.rows[0] || { quiz_unlocked: false, filword_unlocked: false, quiz_start_time: null };
     return res.json(row);
   } catch (error) {
     console.error(error);
