@@ -12,7 +12,7 @@ interface LeaderboardEntry {
 
 type LiveState =
   | { phase: 'loading' }
-  | { phase: 'waiting' }
+  | { phase: 'waiting' }  
   | { phase: 'paused' }
   | { phase: 'ended' }
   | {
@@ -33,6 +33,7 @@ type LiveState =
       correctOptionIndex: number;
       correctOptionText: string;
       wasCorrect: boolean;
+      didAnswer: boolean;
       leaderboard: LeaderboardEntry[];
     }
   | { phase: 'finished'; participated: boolean; score: number; bonus: number; leaderboard: LeaderboardEntry[] }
@@ -146,23 +147,27 @@ export const QuizGame: React.FC = () => {
     }
   };
 
-  const handleAnswer = async (optionIndex: number) => {
-    if (!user || selected !== null || submitting) return;
-    setSelected(optionIndex);
-    setSubmitting(true);
+const handleAnswer = async (optionIndex: number) => {
+  if (!user || selected !== null || submitting || state.phase !== 'question') return;
+  setSelected(optionIndex);
+  setSubmitting(true);
 
-    try {
-      await fetch(`${API_URL}/api/quiz/answer`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: user.id, selectedOption: optionIndex }),
-      });
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setSubmitting(false);
-    }
-  };
+  try {
+    await fetch(`${API_URL}/api/quiz/answer`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId: user.id,
+        selectedOption: optionIndex,
+        questionIndex: state.questionIndex,
+      }),
+    });
+  } catch (err) {
+    console.error(err);
+  } finally {
+    setSubmitting(false);
+  }
+};
 
   if (state.phase === 'loading') {
     return (
@@ -284,17 +289,24 @@ export const QuizGame: React.FC = () => {
           </span>
 
           <div className="mt-4 mb-4">
-            {state.wasCorrect ? (
-              <p className="text-emerald-400 text-lg font-semibold">✅ Верно!</p>
-            ) : (
-              <>
-                <p className="text-red-400 text-lg font-semibold">❌ Неверно</p>
-                <p className="text-slate-300 text-sm mt-2">
-                  Правильный ответ: <span className="text-emerald-400 font-medium">{state.correctOptionText}</span>
-                </p>
-              </>
-            )}
-          </div>
+  {state.wasCorrect ? (
+    <p className="text-emerald-400 text-lg font-semibold">✅ Верно!</p>
+  ) : !state.didAnswer ? (
+    <>
+      <p className="text-amber-400 text-lg font-semibold">⏱️ Время вышло</p>
+      <p className="text-slate-300 text-sm mt-2">
+        Правильный ответ: <span className="text-emerald-400 font-medium">{state.correctOptionText}</span>
+      </p>
+    </>
+  ) : (
+    <>
+      <p className="text-red-400 text-lg font-semibold">❌ Неверно</p>
+      <p className="text-slate-300 text-sm mt-2">
+        Правильный ответ: <span className="text-emerald-400 font-medium">{state.correctOptionText}</span>
+      </p>
+    </>
+  )}
+</div>
 
           <div className="w-full bg-slate-950 rounded-2xl mt-2">
             <p className="text-xs text-slate-500 mb-3">Топ-10 прямо сейчас</p>

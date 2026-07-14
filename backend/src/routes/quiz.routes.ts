@@ -185,7 +185,7 @@ router.get('/live-state/:userId', async (req: Request, res: Response) => {
         });
       }
 
-      await finalizeIfNeeded(userId);
+      await finalizeIfNeeded(String(userId));
 
       const finalResult = await pool.query('SELECT score, bonus FROM quiz_final_results WHERE user_id = $1', [userId]);
       const leaderboard = await getLeaderboard(questions.length - 1);
@@ -209,7 +209,7 @@ router.get('/live-state/:userId', async (req: Request, res: Response) => {
       const fullQuestion = questions[state.questionIndex];
 
       // НОВОЕ: перемешиваем варианты для этого userId+questionIndex
-      const shuffledIndices = getShuffledIndices(userId, state.questionIndex, fullQuestion.options.length);
+      const shuffledIndices = getShuffledIndices(String(userId), state.questionIndex, fullQuestion.options.length);
       const shuffledOptions = shuffledIndices.map((origIdx) => fullQuestion.options[origIdx]);
 
       // Если пользователь уже отвечал — переводим сохранённый оригинальный
@@ -235,15 +235,16 @@ router.get('/live-state/:userId', async (req: Request, res: Response) => {
     const leaderboard = await getLeaderboard(state.questionIndex);
 
     return res.json({
-      phase: 'reveal',
-      questionIndex: state.questionIndex,
-      totalQuestions: questions.length,
-      timeLeft: state.timeLeft,
-      correctOptionIndex: fullQuestion.correct,
-      correctOptionText: fullQuestion.options[fullQuestion.correct],
-      wasCorrect: alreadyAnswered?.is_correct ?? false,
-      leaderboard,
-    });
+  phase: 'reveal',
+  questionIndex: state.questionIndex,
+  totalQuestions: questions.length,
+  timeLeft: state.timeLeft,
+  correctOptionIndex: fullQuestion.correct,
+  correctOptionText: fullQuestion.options[fullQuestion.correct],
+  wasCorrect: alreadyAnswered?.is_correct ?? false,
+  didAnswer: alreadyAnswered !== null,
+  leaderboard,
+});
   } catch (error) {
     console.error(error);
     return res.status(500).json({ error: 'Ошибка получения состояния викторины' });
@@ -251,7 +252,7 @@ router.get('/live-state/:userId', async (req: Request, res: Response) => {
 });
 
 router.post('/answer', async (req: Request, res: Response) => {
-  const { userId, selectedOption } = req.body;
+  const { userId, selectedOption, questionIndex } = req.body;
 
   try {
     const settingsResult = await pool.query(
@@ -271,6 +272,12 @@ router.post('/answer', async (req: Request, res: Response) => {
 
     if (state.phase !== 'question') {
       return res.status(400).json({ error: 'Сейчас нельзя отвечать' });
+    }
+
+    // Защита от гонки — проверяем, что ответ пришёл именно на тот вопрос,
+    // который сейчас актуален на сервере, а не на предыдущий
+    if (typeof questionIndex !== 'number' || questionIndex !== state.questionIndex) {
+      return res.status(400).json({ error: 'Время на этот вопрос истекло, ответ не принят' });
     }
 
     const fullQuestion = questions[state.questionIndex];

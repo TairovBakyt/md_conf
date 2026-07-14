@@ -46,6 +46,8 @@ export const FilwordGame: React.FC = () => {
 
   const [state, setState] = useState<ScreenState>({ phase: 'loading' });
   const [wordInput, setWordInput] = useState('');
+  const [pendingCells, setPendingCells] = useState<Cell[] | null>(null);
+  const [resultFlash, setResultFlash] = useState<{ cells: Cell[]; isValid: boolean } | null>(null);
   const [feedback, setFeedback] = useState<{ type: 'ok' | 'bad'; text: string } | null>(null);
   const [lobbyCount, setLobbyCount] = useState(0);
 
@@ -54,6 +56,7 @@ export const FilwordGame: React.FC = () => {
   const isDraggingRef = useRef(false);
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const autoSubmitRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!user) {
@@ -66,6 +69,7 @@ export const FilwordGame: React.FC = () => {
 
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
+      if (autoSubmitRef.current) clearTimeout(autoSubmitRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -116,7 +120,11 @@ export const FilwordGame: React.FC = () => {
     }
   };
 
-  const handleSubmitWord = async (wordOverride?: string) => {
+  const handleSubmitWord = async (wordOverride?: string, cellsOverride?: Cell[]) => {
+    if (autoSubmitRef.current) {
+      clearTimeout(autoSubmitRef.current);
+      autoSubmitRef.current = null;
+    }
     const trimmed = (wordOverride ?? wordInput).trim();
     if (!trimmed || !user || state.phase !== 'playing') return;
 
@@ -130,7 +138,14 @@ export const FilwordGame: React.FC = () => {
 
       if (!res.ok) {
         setFeedback({ type: 'bad', text: data.error || 'Ошибка' });
+        setPendingCells(null);
         return;
+      }
+
+      if (cellsOverride) {
+        setPendingCells(null);
+        setResultFlash({ cells: cellsOverride, isValid: data.isValid });
+        setTimeout(() => setResultFlash(null), 600);
       }
 
       if (data.isValid) {
@@ -145,6 +160,7 @@ export const FilwordGame: React.FC = () => {
     } catch (err) {
       console.error(err);
       setFeedback({ type: 'bad', text: 'Сервер недоступен' });
+      setPendingCells(null);
     }
   };
 
@@ -176,6 +192,16 @@ export const FilwordGame: React.FC = () => {
     return cells.some((c) => c.row === row && c.col === col);
   };
 
+  const isCellPending = (row: number, col: number): boolean => {
+    if (!pendingCells) return false;
+    return pendingCells.some((c) => c.row === row && c.col === col);
+  };
+
+  const isCellInFlash = (row: number, col: number): boolean => {
+    if (!resultFlash) return false;
+    return resultFlash.cells.some((c) => c.row === row && c.col === col);
+  };
+
   const getWordCells = (start: [number, number], end: [number, number]): Cell[] => {
     const [r1, c1] = start;
     const [r2, c2] = end;
@@ -205,6 +231,8 @@ export const FilwordGame: React.FC = () => {
       const word = cells.map((c) => grid[c.row][c.col]).join('');
       if (word.length > 1) {
         setWordInput(word);
+        setPendingCells(cells);
+        handleSubmitWord(word, cells);
       }
     }
     isDraggingRef.current = false;
@@ -421,6 +449,18 @@ export const FilwordGame: React.FC = () => {
             {state.grid.map((row, rowIndex) =>
               row.split('').map((letter, colIndex) => {
                 const selected = isCellSelected(rowIndex, colIndex);
+                const pending = isCellPending(rowIndex, colIndex);
+                const inFlash = isCellInFlash(rowIndex, colIndex);
+
+                let cellClasses = 'bg-slate-800 text-slate-300';
+                if (inFlash) {
+                  cellClasses = resultFlash?.isValid
+                    ? 'bg-emerald-600 text-white'
+                    : 'bg-red-600 text-white';
+                } else if (pending || selected) {
+                  cellClasses = 'bg-indigo-600 text-white';
+                }
+
                 return (
                   <div
                     key={`${rowIndex}-${colIndex}`}
@@ -431,9 +471,7 @@ export const FilwordGame: React.FC = () => {
                     onTouchStart={(e) => handleTouchStart(rowIndex, colIndex, e)}
                     onTouchMove={handleTouchMove}
                     onTouchEnd={() => handleTouchEnd(state.grid)}
-                    className={`w-5 h-5 sm:w-6 sm:h-6 lg:w-7 lg:h-7 flex items-center justify-center text-[10px] sm:text-[11px] lg:text-xs font-mono rounded-sm cursor-pointer transition-colors ${
-                      selected ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-300'
-                    }`}
+                    className={`w-5 h-5 sm:w-6 sm:h-6 lg:w-7 lg:h-7 flex items-center justify-center text-[10px] sm:text-[11px] lg:text-xs font-mono rounded-sm cursor-pointer transition-colors ${cellClasses}`}
                   >
                     {letter}
                   </div>
@@ -453,7 +491,13 @@ export const FilwordGame: React.FC = () => {
               <input
                 type="text"
                 value={wordInput}
-                onChange={(e) => setWordInput(e.target.value.toUpperCase())}
+                onChange={(e) => {
+                  if (autoSubmitRef.current) {
+                    clearTimeout(autoSubmitRef.current);
+                    autoSubmitRef.current = null;
+                  }
+                  setWordInput(e.target.value.toUpperCase());
+                }}
                 onKeyDown={handleKeyDown}
                 placeholder="Выдели слово в сетке или введи вручную"
                 className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-slate-100 text-sm font-mono outline-none focus:border-indigo-500"
