@@ -73,7 +73,7 @@ export const AdminsView: React.FC = () => {
   return (
     <div className="w-full max-w-sm bg-slate-950 rounded-2xl p-5">
       <div className="flex items-center justify-between mb-4">
-        <span className="text-sm font-medium text-indigo-400">Управление администраторами</span>
+        <span className="text-sm font-medium text-indigo-400">Добавить администратора</span>
       </div>
 
       <label className="text-xs text-slate-400 block mb-1.5">ID участника (только цифры)</label>

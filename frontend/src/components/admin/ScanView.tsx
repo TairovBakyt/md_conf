@@ -1,17 +1,17 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Html5Qrcode, Html5QrcodeScannerState } from 'html5-qrcode';
+import { QRCodeSVG } from 'qrcode.react';
 import { useUser } from '../../authorization/UserContext';
 import { API_URL } from '../../config';
 
 const SCANNER_ELEMENT_ID = 'qr-reader';
 
 const STATIONS: { label: string; suggestedPoints: number }[] = [
-  { label: '1', suggestedPoints: 10 },
-  { label: '2', suggestedPoints: 10 },
-  { label: '3', suggestedPoints: 10 },
-  { label: '4', suggestedPoints: 10 },
-  { label: '5', suggestedPoints: 10 },
-  { label: 'Instagram', suggestedPoints: 5 },
+  { label: 'Ст.3 · Instagram', suggestedPoints: 5 },
+  { label: 'Ст.3 · LinkedIn', suggestedPoints: 5 },
+  { label: 'Ст.4 · Сториз', suggestedPoints: 15 },
+  { label: 'Ст.5 · Победа в тб', suggestedPoints: 15 },
+  { label: 'Ст.5 · Участие в тб', suggestedPoints: 5 },
 ];
 
 type Mode = 'scanning' | 'found' | 'submitting' | 'success' | 'error';
@@ -32,11 +32,13 @@ export const ScanView: React.FC = () => {
   const [successMsg, setSuccessMsg] = useState('');
   const [showManualInput, setShowManualInput] = useState(false);
   const [manualId, setManualId] = useState('');
+  const [showMyQr, setShowMyQr] = useState(false);
   const [cameraStarted, setCameraStarted] = useState(false);
   const [cameraError, setCameraError] = useState('');
 
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const isProcessingRef = useRef(false);
+  const incomingPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     if (mode !== 'scanning' || !cameraStarted) return;
@@ -69,9 +71,38 @@ export const ScanView: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, cameraStarted]);
 
+  // НОВОЕ: пока админ в режиме "scanning" (независимо от того, показывает ли
+  // он свой QR, включил ли камеру или ждёт) — опрашиваем сервер: не
+  // отсканировал ли его кто-то из участников
+  useEffect(() => {
+    if (mode !== 'scanning' || !user) return;
+
+    const poll = async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/admin/scan-requests/${user.id}`);
+        const data = await res.json();
+        if (res.ok && data.participantId) {
+          handleScanSuccess(data.participantId);
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    };
+
+    incomingPollRef.current = setInterval(poll, 2000);
+    return () => {
+      if (incomingPollRef.current) clearInterval(incomingPollRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, user]);
+
   const handleScanSuccess = async (scannedUserId: string) => {
     if (isProcessingRef.current) return;
     isProcessingRef.current = true;
+
+    if (incomingPollRef.current) {
+      clearInterval(incomingPollRef.current);
+    }
 
     const s = scannerRef.current;
     if (s && s.getState() === Html5QrcodeScannerState.SCANNING) {
@@ -157,11 +188,12 @@ export const ScanView: React.FC = () => {
   const handleScanNext = () => {
     setParticipant(null);
     setCameraStarted(false);
+    setShowManualInput(false);
+    setShowMyQr(false);
     setSelectedStation(STATIONS[0].label);
     setPointsInput(String(STATIONS[0].suggestedPoints));
     setErrorMsg('');
     setSuccessMsg('');
-    setShowManualInput(false);
     setManualId('');
     setCameraError('');
     setMode('scanning');
@@ -177,7 +209,7 @@ export const ScanView: React.FC = () => {
             <span className="text-sm font-medium text-indigo-400">Сканирование QR-кода</span>
           </div>
 
-          {!cameraStarted && !showManualInput && (
+          {!cameraStarted && !showManualInput && !showMyQr && (
             <div className="flex flex-col gap-2">
               <button
                 onClick={() => setCameraStarted(true)}
@@ -191,11 +223,44 @@ export const ScanView: React.FC = () => {
               >
                 Ввести ID вручную
               </button>
+              <button
+                onClick={() => setShowMyQr(true)}
+                className="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium rounded-lg py-3 text-sm transition-colors"
+              >
+                Показать мой QR
+              </button>
+            </div>
+          )}
+
+          {showMyQr && user && (
+            <div className="flex flex-col items-center py-2">
+              <p className="text-slate-400 text-xs text-center mb-4">
+                Пусть участник отсканирует этот код — его профиль появится здесь автоматически
+              </p>
+              <div className="p-4 bg-white rounded-xl shadow-inner mb-4">
+                <QRCodeSVG value={user.id} size={180} bgColor={'#ffffff'} fgColor={'#0f172a'} level={'H'} />
+              </div>
+              <p className="text-slate-500 text-xs font-mono mb-4">{user.id}</p>
+              <button
+                onClick={() => setShowMyQr(false)}
+                className="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium rounded-lg py-2.5 text-sm transition-colors"
+              >
+                Назад
+              </button>
             </div>
           )}
 
           {cameraStarted && !cameraError && <div id={SCANNER_ELEMENT_ID} className="rounded-xl overflow-hidden" />}
           {cameraStarted && cameraError && <div id={SCANNER_ELEMENT_ID} className="rounded-xl overflow-hidden hidden" />}
+
+          {cameraStarted && !cameraError && (
+            <button
+              onClick={handleScanNext}
+              className="w-full mt-4 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium rounded-lg py-2.5 text-sm transition-colors"
+            >
+              Отмена
+            </button>
+          )}
 
           {cameraError && (
             <div className="text-center py-4">

@@ -6,6 +6,8 @@ interface GameSettings {
   quiz_unlocked: boolean;
   filword_unlocked: boolean;
   quiz_start_time: string | null;
+  quiz_paused_at: string | null;
+  filword_start_time: string | null;
 }
 
 export const GamesView: React.FC = () => {
@@ -14,9 +16,13 @@ export const GamesView: React.FC = () => {
     quiz_unlocked: false,
     filword_unlocked: false,
     quiz_start_time: null,
+    quiz_paused_at: null,
+    filword_start_time: null,
   });
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [quizLobbyCount, setQuizLobbyCount] = useState(0);
+  const [filwordLobbyCount, setFilwordLobbyCount] = useState(0);
 
   const fetchGameSettings = async () => {
     setLoading(true);
@@ -33,87 +39,89 @@ export const GamesView: React.FC = () => {
     }
   };
 
+  const fetchQuizLobbyCount = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/quiz/lobby-count`);
+      const data = await res.json();
+      if (res.ok) setQuizLobbyCount(data.count);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const fetchFilwordLobbyCount = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/filword/lobby-count`);
+      const data = await res.json();
+      if (res.ok) setFilwordLobbyCount(data.count);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   useEffect(() => {
     fetchGameSettings();
     const interval = setInterval(fetchGameSettings, 5000);
     return () => clearInterval(interval);
   }, []);
 
-  const toggleGame = async (game: 'filword', unlocked: boolean) => {
-    if (!user) return;
-
-    setGameSettings((prev) => ({ ...prev, [`${game}_unlocked`]: unlocked }));
-
-    try {
-      const res = await fetch(`${API_URL}/api/admin/toggle-game`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ adminId: user.id, game, unlocked }),
-      });
-      const data = await res.json();
-
-      if (!res.ok) {
-        console.error(data.error);
-        setGameSettings((prev) => ({ ...prev, [`${game}_unlocked`]: !unlocked }));
-      }
-    } catch (err) {
-      console.error(err);
-      setGameSettings((prev) => ({ ...prev, [`${game}_unlocked`]: !unlocked }));
-    }
-  };
-
-  const openQuiz = async () => {
-    if (!user) return;
-    if (!confirm('Открыть викторину — у всех участников появится экран ожидания?')) return;
-
-    setBusy(true);
-    try {
-      const res = await fetch(`${API_URL}/api/admin/open-quiz`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ adminId: user.id }),
-      });
-      if (res.ok) {
-        fetchGameSettings();
-      } else {
-        const data = await res.json();
-        alert(data.error || 'Не удалось открыть викторину');
-      }
-    } catch (err) {
-      console.error(err);
-      alert('Сервер недоступен');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const startQuizLive = async () => {
-    if (!user) return;
-    if (!confirm('Начать отсчёт — у всех одновременно затикает первый вопрос?')) return;
-
-    setBusy(true);
-    try {
-      const res = await fetch(`${API_URL}/api/admin/start-quiz-live`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ adminId: user.id }),
-      });
-      if (res.ok) {
-        fetchGameSettings();
-      } else {
-        const data = await res.json();
-        alert(data.error || 'Не удалось запустить викторину');
-      }
-    } catch (err) {
-      console.error(err);
-      alert('Сервер недоступен');
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const quizIsRunning = gameSettings.quiz_unlocked && gameSettings.quiz_start_time !== null;
   const quizIsWaitingRoom = gameSettings.quiz_unlocked && gameSettings.quiz_start_time === null;
+  const quizIsPaused = gameSettings.quiz_paused_at !== null;
+
+  const filwordIsRunning = gameSettings.filword_unlocked && gameSettings.filword_start_time !== null;
+  const filwordIsWaitingRoom = gameSettings.filword_unlocked && gameSettings.filword_start_time === null;
+
+  useEffect(() => {
+    if (!quizIsWaitingRoom) return;
+    fetchQuizLobbyCount();
+    const interval = setInterval(fetchQuizLobbyCount, 3000);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quizIsWaitingRoom]);
+
+  useEffect(() => {
+    if (!filwordIsWaitingRoom) return;
+    fetchFilwordLobbyCount();
+    const interval = setInterval(fetchFilwordLobbyCount, 3000);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filwordIsWaitingRoom]);
+
+  const callAdminAction = async (endpoint: string, confirmText?: string) => {
+    if (!user) return;
+    if (confirmText && !confirm(confirmText)) return;
+
+    setBusy(true);
+    try {
+      const res = await fetch(`${API_URL}/api/admin/${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adminId: user.id }),
+      });
+      if (res.ok) {
+        fetchGameSettings();
+      } else {
+        const data = await res.json();
+        alert(data.error || 'Не удалось выполнить действие');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Сервер недоступен');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const openQuiz = () => callAdminAction('open-quiz', 'Открыть викторину — у всех участников появится комната ожидания?');
+  const startQuizLive = () => callAdminAction('start-quiz-live', 'Начать отсчёт — у всех одновременно затикает первый вопрос?');
+  const pauseQuiz = () => callAdminAction('pause-quiz');
+  const resumeQuiz = () => callAdminAction('resume-quiz');
+  const endQuiz = () => callAdminAction('end-quiz', 'Завершить викторину и вернуть всех участников в личный кабинет?');
+
+  const openFilword = () => callAdminAction('open-filword', 'Открыть филворд — у всех участников появится комната ожидания?');
+  const startFilwordLive = () => callAdminAction('start-filword-live', 'Начать отсчёт 90 секунд для всех одновременно?');
+  const endFilword = () => callAdminAction('end-filword', 'Завершить филворд и вернуть всех участников в личный кабинет?');
 
   return (
     <div className="w-full max-w-sm bg-slate-950 rounded-2xl p-5">
@@ -129,7 +137,9 @@ export const GamesView: React.FC = () => {
             <p className="text-slate-100 text-sm font-medium mb-1">Викторина «Hardcore QA»</p>
             <p className="text-slate-500 text-xs mb-3">
               {quizIsRunning
-                ? '🟢 Идёт прямо сейчас'
+                ? quizIsPaused
+                  ? '⏸️ На паузе'
+                  : '🟢 Идёт прямо сейчас'
                 : quizIsWaitingRoom
                 ? '🟡 Открыта — участники в комнате ожидания'
                 : '🔒 Закрыта'}
@@ -146,45 +156,108 @@ export const GamesView: React.FC = () => {
             )}
 
             {quizIsWaitingRoom && (
-              <button
-                onClick={startQuizLive}
-                disabled={busy}
-                className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-medium rounded-lg py-2.5 text-sm transition-colors disabled:opacity-50"
-              >
-                🚀 Начать отсчёт для всех
-              </button>
+              <>
+                <div className="bg-slate-900 rounded-xl p-3 mb-2">
+                  <p className="text-sm text-slate-300">
+                    В комнате ожидания: <span className="text-indigo-400 font-semibold">{quizLobbyCount}</span>
+                  </p>
+                </div>
+                <button
+                  onClick={startQuizLive}
+                  disabled={busy}
+                  className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-medium rounded-lg py-2.5 text-sm transition-colors disabled:opacity-50"
+                >
+                  🚀 Начать отсчёт для всех
+                </button>
+              </>
             )}
 
             {quizIsRunning && (
+              <div className="flex flex-col gap-2">
+                {quizIsPaused ? (
+                  <button
+                    onClick={resumeQuiz}
+                    disabled={busy}
+                    className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-medium rounded-lg py-2.5 text-sm transition-colors disabled:opacity-50"
+                  >
+                    ▶️ Продолжить
+                  </button>
+                ) : (
+                  <button
+                    onClick={pauseQuiz}
+                    disabled={busy}
+                    className="w-full bg-amber-600 hover:bg-amber-500 text-white font-medium rounded-lg py-2.5 text-sm transition-colors disabled:opacity-50"
+                  >
+                    ⏸️ Пауза
+                  </button>
+                )}
+                <button
+                  onClick={startQuizLive}
+                  disabled={busy}
+                  className="w-full bg-slate-700 hover:bg-slate-600 text-slate-200 font-medium rounded-lg py-2.5 text-sm transition-colors disabled:opacity-50"
+                >
+                  Перезапустить с начала
+                </button>
+              </div>
+            )}
+
+            {gameSettings.quiz_unlocked && (
               <button
-                onClick={startQuizLive}
+                onClick={endQuiz}
                 disabled={busy}
-                className="w-full bg-slate-700 hover:bg-slate-600 text-slate-200 font-medium rounded-lg py-2.5 text-sm transition-colors disabled:opacity-50"
+                className="w-full bg-red-600 hover:bg-red-500 text-white font-medium rounded-lg py-2.5 text-sm transition-colors disabled:opacity-50 mt-2"
               >
-                Перезапустить с начала
+                🔚 Завершить и вернуть всех
               </button>
             )}
           </div>
 
-          <div className="bg-slate-800 rounded-xl p-4 flex items-center justify-between">
-            <div>
-              <p className="text-slate-100 text-sm font-medium">Филворд «Word Researcher»</p>
-              <p className="text-slate-500 text-xs mt-0.5">
-                {gameSettings.filword_unlocked ? 'Открыт для всех участников' : 'Закрыт'}
-              </p>
-            </div>
-            <button
-              onClick={() => toggleGame('filword', !gameSettings.filword_unlocked)}
-              className={`relative w-12 h-7 rounded-full transition-colors shrink-0 ${
-                gameSettings.filword_unlocked ? 'bg-emerald-600' : 'bg-slate-700'
-              }`}
-            >
-              <span
-                className={`absolute top-1 left-1 w-5 h-5 bg-white rounded-full transition-transform ${
-                  gameSettings.filword_unlocked ? 'translate-x-5' : 'translate-x-0'
-                }`}
-              />
-            </button>
+          <div className="bg-slate-800 rounded-xl p-4">
+            <p className="text-slate-100 text-sm font-medium mb-1">Филворд «Word Researcher»</p>
+            <p className="text-slate-500 text-xs mb-3">
+              {filwordIsRunning
+                ? '🟢 Идёт прямо сейчас (90 сек)'
+                : filwordIsWaitingRoom
+                ? '🟡 Открыт — участники в комнате ожидания'
+                : '🔒 Закрыт'}
+            </p>
+
+            {!gameSettings.filword_unlocked && (
+              <button
+                onClick={openFilword}
+                disabled={busy}
+                className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-lg py-2.5 text-sm transition-colors disabled:opacity-50"
+              >
+                Открыть филворд для всех
+              </button>
+            )}
+
+            {filwordIsWaitingRoom && (
+              <>
+                <div className="bg-slate-900 rounded-xl p-3 mb-2">
+                  <p className="text-sm text-slate-300">
+                    В комнате ожидания: <span className="text-indigo-400 font-semibold">{filwordLobbyCount}</span>
+                  </p>
+                </div>
+                <button
+                  onClick={startFilwordLive}
+                  disabled={busy}
+                  className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-medium rounded-lg py-2.5 text-sm transition-colors disabled:opacity-50"
+                >
+                  🚀 Начать отсчёт для всех
+                </button>
+              </>
+            )}
+
+            {gameSettings.filword_unlocked && (
+              <button
+                onClick={endFilword}
+                disabled={busy}
+                className="w-full bg-red-600 hover:bg-red-500 text-white font-medium rounded-lg py-2.5 text-sm transition-colors disabled:opacity-50 mt-2"
+              >
+                🔚 Завершить и вернуть всех
+              </button>
+            )}
           </div>
         </div>
       )}

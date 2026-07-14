@@ -4,16 +4,25 @@ import questions from '../questions.json';
 
 const router = Router();
 
-const ANSWER_SECONDS = 5;
-const REVEAL_SECONDS = 3;
+const ANSWER_SECONDS = 10;
+const REVEAL_SECONDS = 7;
 const CYCLE_SECONDS = ANSWER_SECONDS + REVEAL_SECONDS;
 
-function computeLiveState(quizStartTime: Date | null) {
+function computeLiveState(
+  quizStartTime: Date | null,
+  quizPausedAt: Date | null,
+  quizPausedSeconds: number
+) {
   if (!quizStartTime) {
     return { phase: 'waiting' as const, questionIndex: -1 };
   }
 
-  const elapsedSeconds = (Date.now() - new Date(quizStartTime).getTime()) / 1000;
+  if (quizPausedAt) {
+    return { phase: 'paused' as const, questionIndex: -1 };
+  }
+
+  const elapsedSeconds =
+    (Date.now() - new Date(quizStartTime).getTime()) / 1000 - quizPausedSeconds;
   const questionIndex = Math.floor(elapsedSeconds / CYCLE_SECONDS);
 
   if (questionIndex >= questions.length) {
@@ -37,6 +46,40 @@ function computeLiveState(quizStartTime: Date | null) {
   };
 }
 
+// НОВОЕ: детерминированный "случайный" порядок вариантов для конкретного
+// пользователя и вопроса — стабильный при повторных запросах (поллинг),
+// но разный у разных людей.
+function hashStringToSeed(str: string): number {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash << 5) - hash + str.charCodeAt(i);
+    hash |= 0;
+  }
+  return hash;
+}
+
+function seededRandom(seed: number) {
+  let s = seed;
+  return function () {
+    s |= 0;
+    s = (s + 0x6d2b79f5) | 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function getShuffledIndices(userId: string, questionIndex: number, length: number): number[] {
+  const seed = hashStringToSeed(`${userId}-${questionIndex}`);
+  const rand = seededRandom(seed);
+  const indices = Array.from({ length }, (_, i) => i);
+  for (let i = indices.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [indices[i], indices[j]] = [indices[j], indices[i]];
+  }
+  return indices;
+}
+
 async function getLeaderboard(upToQuestionIndex: number) {
   const result = await pool.query(
     `
@@ -55,6 +98,17 @@ async function getLeaderboard(upToQuestionIndex: number) {
     username: row.username,
     correctCount: Number(row.correct_count),
   }));
+}
+
+async function hasParticipated(userId: string): Promise<boolean> {
+  const lobbyCheck = await pool.query('SELECT 1 FROM quiz_lobby WHERE user_id = $1', [userId]);
+  if (lobbyCheck.rows.length > 0) return true;
+
+  const answersCheck = await pool.query(
+    'SELECT 1 FROM quiz_answers WHERE user_id = $1 LIMIT 1',
+    [userId]
+  );
+  return answersCheck.rows.length > 0;
 }
 
 async function finalizeIfNeeded(userId: string) {
@@ -89,16 +143,48 @@ router.get('/live-state/:userId', async (req: Request, res: Response) => {
   const { userId } = req.params;
 
   try {
-    const settingsResult = await pool.query('SELECT quiz_start_time FROM event_settings WHERE id = 1');
-    const quizStartTime = settingsResult.rows[0]?.quiz_start_time ?? null;
+    const settingsResult = await pool.query(
+      'SELECT quiz_unlocked, quiz_start_time, quiz_paused_at, quiz_paused_seconds FROM event_settings WHERE id = 1'
+    );
+    const row = settingsResult.rows[0] ?? {};
 
-    const state = computeLiveState(quizStartTime);
+    if (!row.quiz_unlocked) {
+      return res.json({ phase: 'ended' });
+    }
+
+    const quizStartTime = row.quiz_start_time ?? null;
+    const quizPausedAt = row.quiz_paused_at ?? null;
+    const quizPausedSeconds = row.quiz_paused_seconds ?? 0;
+
+    const state = computeLiveState(quizStartTime, quizPausedAt, quizPausedSeconds);
 
     if (state.phase === 'waiting') {
+      await pool.query(
+        `INSERT INTO quiz_lobby (user_id) VALUES ($1)
+         ON CONFLICT (user_id) DO UPDATE SET joined_at = NOW()`,
+        [userId]
+      );
       return res.json({ phase: 'waiting' });
     }
 
+    if (state.phase === 'paused') {
+      return res.json({ phase: 'paused' });
+    }
+
     if (state.phase === 'finished') {
+      const participated = await hasParticipated(String(userId));
+
+      if (!participated) {
+        const leaderboard = await getLeaderboard(questions.length - 1);
+        return res.json({
+          phase: 'finished',
+          participated: false,
+          score: 0,
+          bonus: 0,
+          leaderboard,
+        });
+      }
+
       await finalizeIfNeeded(userId);
 
       const finalResult = await pool.query('SELECT score, bonus FROM quiz_final_results WHERE user_id = $1', [userId]);
@@ -106,6 +192,7 @@ router.get('/live-state/:userId', async (req: Request, res: Response) => {
 
       return res.json({
         phase: 'finished',
+        participated: true,
         score: finalResult.rows[0]?.score ?? 0,
         bonus: finalResult.rows[0]?.bonus ?? 0,
         leaderboard,
@@ -120,15 +207,27 @@ router.get('/live-state/:userId', async (req: Request, res: Response) => {
 
     if (state.phase === 'question') {
       const fullQuestion = questions[state.questionIndex];
+
+      // НОВОЕ: перемешиваем варианты для этого userId+questionIndex
+      const shuffledIndices = getShuffledIndices(userId, state.questionIndex, fullQuestion.options.length);
+      const shuffledOptions = shuffledIndices.map((origIdx) => fullQuestion.options[origIdx]);
+
+      // Если пользователь уже отвечал — переводим сохранённый оригинальный
+      // индекс обратно в позицию внутри его перемешанного списка
+      let shuffledSelectedOption: number | null = null;
+      if (alreadyAnswered) {
+        shuffledSelectedOption = shuffledIndices.indexOf(alreadyAnswered.selected_option);
+      }
+
       return res.json({
         phase: 'question',
         questionIndex: state.questionIndex,
         totalQuestions: questions.length,
         timeLeft: state.timeLeft,
         questionText: fullQuestion.question,
-        options: fullQuestion.options,
+        options: shuffledOptions,
         alreadyAnswered: alreadyAnswered !== null,
-        selectedOption: alreadyAnswered?.selected_option ?? null,
+        selectedOption: shuffledSelectedOption,
       });
     }
 
@@ -141,6 +240,7 @@ router.get('/live-state/:userId', async (req: Request, res: Response) => {
       totalQuestions: questions.length,
       timeLeft: state.timeLeft,
       correctOptionIndex: fullQuestion.correct,
+      correctOptionText: fullQuestion.options[fullQuestion.correct],
       wasCorrect: alreadyAnswered?.is_correct ?? false,
       leaderboard,
     });
@@ -154,23 +254,41 @@ router.post('/answer', async (req: Request, res: Response) => {
   const { userId, selectedOption } = req.body;
 
   try {
-    const settingsResult = await pool.query('SELECT quiz_start_time FROM event_settings WHERE id = 1');
-    const quizStartTime = settingsResult.rows[0]?.quiz_start_time ?? null;
-    const state = computeLiveState(quizStartTime);
+    const settingsResult = await pool.query(
+      'SELECT quiz_unlocked, quiz_start_time, quiz_paused_at, quiz_paused_seconds FROM event_settings WHERE id = 1'
+    );
+    const row = settingsResult.rows[0] ?? {};
+
+    if (!row.quiz_unlocked) {
+      return res.status(400).json({ error: 'Викторина завершена' });
+    }
+
+    const state = computeLiveState(
+      row.quiz_start_time ?? null,
+      row.quiz_paused_at ?? null,
+      row.quiz_paused_seconds ?? 0
+    );
 
     if (state.phase !== 'question') {
       return res.status(400).json({ error: 'Сейчас нельзя отвечать' });
     }
 
-    const correctAnswerIndex = questions[state.questionIndex].correct;
-    const isCorrect = Number(selectedOption) === correctAnswerIndex;
+    const fullQuestion = questions[state.questionIndex];
+
+    // НОВОЕ: selectedOption пришёл как позиция в перемешанном списке этого
+    // пользователя — переводим обратно в оригинальный индекс варианта
+    const shuffledIndices = getShuffledIndices(userId, state.questionIndex, fullQuestion.options.length);
+    const originalSelectedIndex = shuffledIndices[Number(selectedOption)];
+
+    const correctAnswerIndex = fullQuestion.correct;
+    const isCorrect = originalSelectedIndex === correctAnswerIndex;
 
     const inserted = await pool.query(
       `INSERT INTO quiz_answers (user_id, question_index, selected_option, is_correct)
        VALUES ($1, $2, $3, $4)
        ON CONFLICT (user_id, question_index) DO NOTHING
        RETURNING *`,
-      [userId, state.questionIndex, selectedOption, isCorrect]
+      [userId, state.questionIndex, originalSelectedIndex, isCorrect]
     );
 
     if (inserted.rows.length === 0) {
@@ -184,160 +302,29 @@ router.post('/answer', async (req: Request, res: Response) => {
   }
 });
 
+router.get('/lobby', async (req: Request, res: Response) => {
+  try {
+    const result = await pool.query(`
+      SELECT u.id, u.username, ql.joined_at
+      FROM quiz_lobby ql
+      JOIN users u ON u.id = ql.user_id
+      ORDER BY ql.joined_at ASC
+    `);
+    return res.json(result.rows);
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Ошибка получения списка' });
+  }
+});
+
+router.get('/lobby-count', async (req: Request, res: Response) => {
+  try {
+    const result = await pool.query('SELECT COUNT(*) AS count FROM quiz_lobby');
+    return res.json({ count: Number(result.rows[0].count) });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Ошибка получения количества' });
+  }
+});
+
 export default router;
-
-// import { Router, Request, Response } from 'express';
-// import { pool } from '../db';
-// import questions from '../questions.json';
-
-// const router = Router();
-
-// router.post('/start', async (req: Request, res: Response) => {
-//   const { userId } = req.body;
-
-//   if (!userId) return res.status(400).json({ error: 'ID пользователя обязателен' });
-
-//   try {
-//     const settingsCheck = await pool.query('SELECT quiz_unlocked FROM event_settings WHERE id = 1');
-//     if (!settingsCheck.rows[0]?.quiz_unlocked) {
-//       return res.status(403).json({ error: 'Викторина ещё не открыта организатором' });
-//     }
-
-//     const sessionCheck = await pool.query('SELECT * FROM quiz_sessions WHERE user_id = $1', [userId]);
-
-//     if (sessionCheck.rows.length > 0) {
-//       if (sessionCheck.rows[0].current_question_index >= questions.length) {
-//         return res.status(400).json({ error: 'Вы уже прошли эту викторину!' });
-//       }
-//       return res.json({ message: 'Продолжаем игру', currentIndex: sessionCheck.rows[0].current_question_index });
-//     }
-
-//     await pool.query(
-//       'INSERT INTO quiz_sessions (user_id, current_question_index, current_quiz_score, question_start_time) VALUES ($1, $2, $3, $4)',
-//       [userId, 0, 0, new Date()]
-//     );
-
-//     return res.status(201).json({ message: 'Игра началась', currentIndex: 0 });
-//   } catch (error) {
-//     console.error(error);
-//     return res.status(500).json({ error: 'Ошибка при старте игры' });
-//   }
-// });
-
-// router.get('/question/:userId', async (req: Request, res: Response) => {
-//   const { userId } = req.params;
-
-//   try {
-//     const sessionResult = await pool.query('SELECT current_question_index FROM quiz_sessions WHERE user_id = $1', [userId]);
-
-//     if (sessionResult.rows.length === 0) {
-//       return res.status(404).json({ error: 'Сессия игры не найдена. Сначала начните игру.' });
-//     }
-
-//     const currentIndex = sessionResult.rows[0].current_question_index;
-
-//     if (currentIndex >= questions.length) {
-//       return res.json({ isFinished: true });
-//     }
-
-//     const fullQuestion = questions[currentIndex];
-
-//     const safeQuestion = {
-//       id: fullQuestion.id,
-//       questionText: fullQuestion.question,
-//       options: fullQuestion.options,
-//       currentIndex: currentIndex,
-//       totalQuestions: questions.length
-//     };
-
-//     await pool.query('UPDATE quiz_sessions SET question_start_time = $1 WHERE user_id = $2', [new Date(), userId]);
-
-//     return res.json(safeQuestion);
-//   } catch (error) {
-//     console.error(error);
-//     return res.status(500).json({ error: 'Ошибка получения вопроса' });
-//   }
-// });
-
-// router.post('/answer', async (req: Request, res: Response) => {
-//   const { userId, selectedOption } = req.body;
-
-//   try {
-//     const sessionResult = await pool.query('SELECT * FROM quiz_sessions WHERE user_id = $1', [userId]);
-//     if (sessionResult.rows.length === 0) return res.status(404).json({ error: 'Сессия не найдена' });
-
-//     const session = sessionResult.rows[0];
-//     const currentIndex = session.current_question_index;
-
-//     if (currentIndex >= questions.length) {
-//       return res.status(400).json({ error: 'Игра уже завершена' });
-//     }
-
-//     const correctAnswerIndex = questions[currentIndex].correct;
-
-//     const now = new Date().getTime();
-//     const startTime = new Date(session.question_start_time).getTime();
-//     const secondsPassed = (now - startTime) / 1000;
-
-//     let pointsToAdd = 0;
-//     let isTimeOut = false;
-
-//     if (secondsPassed > 22) {
-//       isTimeOut = true;
-//     }
-//     if (!isTimeOut && selectedOption !== null) {
-//       if (Number(selectedOption) === correctAnswerIndex) {
-//         pointsToAdd = 1;
-//       }
-//     }
-
-//     const nextIndex = currentIndex + 1;
-//     let finalQuizScore = session.current_quiz_score + pointsToAdd;
-
-//     await pool.query(
-//       'UPDATE quiz_sessions SET current_question_index = $1, current_quiz_score = $2 WHERE user_id = $3',
-//       [nextIndex, finalQuizScore, userId]
-//     );
-
-//     if (nextIndex >= questions.length) {
-//       let bonusPoints = 0;
-//       if (finalQuizScore === questions.length) {
-//         bonusPoints = 5;
-//       }
-
-//       const totalEarned = finalQuizScore + bonusPoints;
-
-//       await pool.query('UPDATE users SET total_score = total_score + $1 WHERE id = $2', [totalEarned, userId]);
-
-//       if (bonusPoints > 0) {
-//         await pool.query(
-//           'INSERT INTO achievements (user_id, title, points) VALUES ($1, $2, $3)',
-//           [userId, 'Senior Developer', bonusPoints]
-//         );
-//       }
-
-//       return res.json({
-//         isFinished: true,
-//         scoreEarned: finalQuizScore,
-//         bonusEarned: bonusPoints,
-//         totalEarned: totalEarned,
-//         wasCorrect: pointsToAdd > 0,
-//         correctOptionIndex: correctAnswerIndex,
-//         message: bonusPoints > 0 ? 'Senior Developer! +5 экстра-баллов!' : 'Игра окончена'
-//       });
-//     }
-
-//     return res.json({
-//       isFinished: false,
-//       isTimeOut: isTimeOut,
-//       wasCorrect: pointsToAdd > 0,
-//       correctOptionIndex: correctAnswerIndex
-//     });
-
-//   } catch (error) {
-//     console.error(error);
-//     return res.status(500).json({ error: 'Ошибка обработки ответа' });
-//   }
-// });
-
-// export default router;

@@ -6,6 +6,7 @@ import AdminPanel from './pages/AdminPanel';
 import About from './pages/About';
 import Prizes from './pages/Prizes';
 import FilwordGame from './pages/FilwordGame';
+import ScanAdmin from './pages/ScanAdmin';
 import NotFound from './pages/NotFound';
 import { ProtectedRoute } from './components/routes/ProtectedRoute';
 import { AdminRoute } from './components/routes/AdminRoute';
@@ -21,6 +22,7 @@ function App() {
         <Route path="/quiz" element={<QuizGame />} />
         <Route path="/prizes" element={<Prizes />} />
         <Route path="/filword" element={<FilwordGame />} />
+        <Route path="/scan-admin" element={<ScanAdmin />} />
       </Route>
 
       <Route element={<AdminRoute />}>
