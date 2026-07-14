@@ -161,7 +161,7 @@ export const Dashboard: React.FC = () => {
         <div className="flex-1 flex flex-col items-center min-w-0">
           <div className="w-full max-w-md">
             <BalanceZone username={profile.username} totalScore={profile.total_score} />
-            <QrZone userId={profile.id} />
+            
 
             <div className="w-full mt-3 grid grid-cols-2 gap-2">
               <QrZone userId={profile.id} />
