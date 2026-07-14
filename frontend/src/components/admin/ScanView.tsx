@@ -202,7 +202,7 @@ export const ScanView: React.FC = () => {
   const initials = participant?.username.slice(0, 2).toLowerCase() || '';
 
   return (
-    <div className="w-full max-w-sm bg-slate-950 rounded-2xl p-5">
+    <div className="w-full max-w-xl bg-slate-950 rounded-2xl p-5">
       {mode === 'scanning' && (
         <>
           <div className="flex items-center gap-2 mb-4">
@@ -280,29 +280,35 @@ export const ScanView: React.FC = () => {
           )}
 
           {showManualInput && (
-            <div className="mt-4">
-              <label className="text-xs text-slate-400 block mb-1.5">
-                ID участника (только цифры)
-              </label>
-              <div className="flex items-center bg-slate-800 border border-slate-700 rounded-lg overflow-hidden mb-2 focus-within:border-indigo-500">
-                <span className="pl-3 py-2.5 text-white text-sm font-mono select-none">user_</span>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  value={manualId}
-                  onChange={(e) => setManualId(e.target.value.replace(/\D/g, ''))}
-                  placeholder="74484074"
-                  className="flex-1 bg-transparent pr-3 py-2.5 text-slate-100 text-sm font-mono outline-none"
-                />
-              </div>
-              <button
-                onClick={handleManualSearch}
-                className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-lg py-2.5 text-sm transition-colors"
-              >
-                Найти
-              </button>
-            </div>
-          )}
+  <div className="mt-4">
+    <label className="text-xs text-slate-400 block mb-1.5">
+      ID участника (только цифры)
+    </label>
+    <div className="flex items-center bg-slate-800 border border-slate-700 rounded-lg overflow-hidden mb-2 focus-within:border-indigo-500">
+      <span className="pl-3 py-2.5 text-white text-sm font-mono select-none">user_</span>
+      <input
+        type="text"
+        inputMode="numeric"
+        value={manualId}
+        onChange={(e) => setManualId(e.target.value.replace(/\D/g, ''))}
+        placeholder="74484074"
+        className="flex-1 bg-transparent pr-3 py-2.5 text-slate-100 text-sm font-mono outline-none"
+      />
+    </div>
+    <button
+      onClick={handleManualSearch}
+      className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-lg py-2.5 text-sm transition-colors mb-2"
+    >
+      Найти
+    </button>
+    <button
+      onClick={() => setShowManualInput(false)}
+      className="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium rounded-lg py-2.5 text-sm transition-colors"
+    >
+      Назад
+    </button>
+  </div>
+)}
         </>
       )}
 

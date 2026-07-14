@@ -342,8 +342,10 @@ export const FilwordGame: React.FC = () => {
                   return (
                     <div
                       key={`${rowIndex}-${colIndex}`}
-                      className={`w-5 h-5 flex items-center justify-center text-[10px] font-mono rounded-sm ${
-                        inWord ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-500'
+                      className={`w-5 h-5 sm:w-6 sm:h-6 lg:w-7 lg:h-7 flex items-center justify-center text-[10px] sm:text-[11px] lg:text-xs font-mono rounded-sm ${
+                        inWord
+                          ? 'bg-emerald-600 text-white'
+                          : 'bg-slate-800 text-slate-500'
                       }`}
                     >
                       {letter}
@@ -390,7 +392,7 @@ export const FilwordGame: React.FC = () => {
       onMouseUp={() => handleMouseUp(state.grid)}
       onMouseLeave={() => handleMouseUp(state.grid)}
     >
-      <div className="w-full max-w-sm bg-slate-950 rounded-2xl p-5">
+      <div className="w-full max-w-sm sm:max-w-xl bg-slate-950 rounded-2xl p-5">
         <div className="flex justify-between items-center mb-3">
           <span className="text-xs font-medium tracking-wider text-indigo-400">WORD RESEARCHER</span>
           <span className={`text-sm font-medium ${state.secondsLeft <= 15 ? 'text-red-400' : 'text-amber-400'}`}>
@@ -429,7 +431,7 @@ export const FilwordGame: React.FC = () => {
                     onTouchStart={(e) => handleTouchStart(rowIndex, colIndex, e)}
                     onTouchMove={handleTouchMove}
                     onTouchEnd={() => handleTouchEnd(state.grid)}
-                    className={`w-5 h-5 flex items-center justify-center text-[10px] font-mono rounded-sm cursor-pointer transition-colors ${
+                    className={`w-5 h-5 sm:w-6 sm:h-6 lg:w-7 lg:h-7 flex items-center justify-center text-[10px] sm:text-[11px] lg:text-xs font-mono rounded-sm cursor-pointer transition-colors ${
                       selected ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-300'
                     }`}
                   >

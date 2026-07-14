@@ -319,4 +319,84 @@ router.get('/scan-requests/:adminId', async (req: Request, res: Response) => {
   }
 });
 
+router.get('/stats', async (req: Request, res: Response) => {
+  try {
+    const participantsResult = await pool.query('SELECT COUNT(*) AS count FROM users WHERE is_admin = false');
+    const pointsResult = await pool.query('SELECT COALESCE(SUM(total_score), 0) AS total FROM users');
+    const redemptionsResult = await pool.query('SELECT COUNT(*) AS count FROM prize_redemptions');
+    const achievementsResult = await pool.query('SELECT COUNT(*) AS count FROM achievements');
+
+    return res.json({
+      totalParticipants: Number(participantsResult.rows[0].count),
+      totalPointsIssued: Number(pointsResult.rows[0].total),
+      totalRedemptions: Number(redemptionsResult.rows[0].count),
+      totalAchievements: Number(achievementsResult.rows[0].count),
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Ошибка получения статистики' });
+  }
+});
+
+router.get('/recent-activity', async (req: Request, res: Response) => {
+  try {
+    const result = await pool.query(`
+      (
+        SELECT 'redemption' AS type, pr.redeemed_at AS created_at, u.username, p.title AS detail, NULL::int AS points
+        FROM prize_redemptions pr
+        JOIN users u ON pr.user_id = u.id
+        JOIN prizes p ON pr.prize_id = p.id
+      )
+      UNION ALL
+      (
+        SELECT 'achievement' AS type, a.created_at, u.username, a.title AS detail, a.points
+        FROM achievements a
+        JOIN users u ON a.user_id = u.id
+      )
+      ORDER BY created_at DESC
+      LIMIT 10
+    `);
+
+    return res.json(result.rows);
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Ошибка получения активности' });
+  }
+});
+
+router.get('/leaderboard', async (req: Request, res: Response) => {
+  try {
+    const result = await pool.query(`
+      SELECT username, total_score
+      FROM users
+      WHERE is_admin = false
+      ORDER BY total_score DESC
+      LIMIT 5
+    `);
+    return res.json(result.rows.map((r) => ({ username: r.username, score: Number(r.total_score) })));
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Ошибка получения рейтинга' });
+  }
+});
+
+router.get('/prize-tier-stats', async (req: Request, res: Response) => {
+  try {
+    const result = await pool.query(`
+      SELECT p.tier, COUNT(*) AS count
+      FROM prize_redemptions pr
+      JOIN prizes p ON pr.prize_id = p.id
+      GROUP BY p.tier
+    `);
+    const counts: Record<string, number> = { low: 0, middle: 0, high: 0 };
+    result.rows.forEach((r) => {
+      counts[r.tier] = Number(r.count);
+    });
+    return res.json(counts);
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Ошибка получения статистики призов' });
+  }
+});
+
 export default router;

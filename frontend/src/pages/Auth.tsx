@@ -1,7 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useUser } from '../authorization/UserContext';
-import { Link } from 'react-router-dom';
 
 import { API_URL } from '../config';
 
@@ -113,9 +112,6 @@ export default function Auth() {
             {loading ? 'Входим...' : 'Войти'}
           </button>
         </form>
-          <Link to="/about" className="block text-center mt-4 text-slate-500 hover:text-slate-300 text-xs transition-colors">
-  О конференции
-</Link>
       </div>
     </div>
   );

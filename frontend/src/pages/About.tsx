@@ -1,7 +1,9 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 
 export const About: React.FC = () => {
+  const navigate = useNavigate();
+
   return (
     <div className="min-h-screen bg-slate-900 px-4 py-10 flex flex-col items-center">
       <div className="w-full max-w-lg">
@@ -36,12 +38,12 @@ export const About: React.FC = () => {
           </div>
         </div>
 
-        <Link
-          to="/auth"
-          className="block text-center mt-6 text-slate-500 hover:text-slate-300 text-sm transition-colors"
+        <button
+          onClick={() => navigate(-1)}
+          className="block w-full text-center mt-6 text-slate-500 hover:text-slate-300 text-sm transition-colors"
         >
-          ← Вернуться ко входу
-        </Link>
+          ← Назад
+        </button>
       </div>
     </div>
   );

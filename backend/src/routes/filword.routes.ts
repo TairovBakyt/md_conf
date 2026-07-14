@@ -175,4 +175,17 @@ router.get('/lobby-count', async (req: Request, res: Response) => {
   }
 });
 
+
+router.get('/status/:userId', async (req: Request, res: Response) => {
+  const { userId } = req.params;
+  try {
+    const result = await pool.query('SELECT is_finished FROM filword_sessions WHERE user_id = $1', [userId]);
+    const passed = result.rows[0]?.is_finished ?? false;
+    return res.json({ passed });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Ошибка получения статуса' });
+  }
+});
+
 export default router;

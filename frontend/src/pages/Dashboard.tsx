@@ -2,10 +2,14 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { BalanceZone } from '../components/BalanceZone';
 import { QrZone } from '../components/QrZone';
+import { StationsInfo } from '../components/StationsInfo';
+import { LiveLeaderboard } from '../components/LiveLeaderboard';
+import { StationProgress } from '../components/StationProgress';
 import { useUser } from '../authorization/UserContext';
 import type { User } from '../types';
-import { StationsInfo } from '../components/Stationinfo';
+import { ScheduleWidget } from '../components/ScheduleWidget';
 import { API_URL } from '../config';
+import { AverageComparison } from '../components/AverageComparison';
 
 export const Dashboard: React.FC = () => {
   const { user, logout } = useUser();
@@ -131,8 +135,15 @@ export const Dashboard: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-slate-900 px-4 py-8 flex flex-col justify-start items-center font-sans">
-      <div className="w-full flex justify-between items-center max-w-md mx-auto mb-6">
+    <div
+  className="min-h-screen bg-slate-900 px-4 py-8 flex flex-col items-center font-sans relative overflow-hidden"
+  style={{
+    backgroundImage:
+      'radial-gradient(circle at 15% 15%, rgba(99,102,241,0.10), transparent 35%), radial-gradient(circle at 85% 80%, rgba(56,189,248,0.08), transparent 35%), radial-gradient(circle, rgba(148,163,184,0.06) 1px, transparent 1px)',
+    backgroundSize: 'auto, auto, 28px 28px',
+  }}
+>
+      <div className="w-full max-w-md xl:max-w-6xl flex justify-between items-center mb-6">
         <span className="text-xl font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-cyan-400">
           MDCONF 2026
         </span>
@@ -141,73 +152,72 @@ export const Dashboard: React.FC = () => {
         </button>
       </div>
 
-      <BalanceZone username={profile.username} totalScore={profile.total_score} />
+      <div className="w-full max-w-md xl:max-w-6xl flex flex-col xl:flex-row gap-6 xl:items-start">
+        <div className="hidden xl:flex flex-col gap-6 w-[280px] shrink-0">
+        <LiveLeaderboard />
+        <ScheduleWidget />
+      </div>
 
-<div className="w-full max-w-md mx-auto mt-3 grid grid-cols-2 gap-2">
-  <QrZone userId={profile.id} />
-  <Link
-    to="/scan-admin"
-    className="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium rounded-2xl py-3 transition-colors flex items-center justify-center"
-  >
-    📷 Сканировать
-  </Link>
-</div>
+        <div className="flex-1 flex flex-col items-center min-w-0">
+          <div className="w-full max-w-md">
+            <BalanceZone username={profile.username} totalScore={profile.total_score} />
+            <QrZone userId={profile.id} />
 
-<Link
-  to="/prizes"
-  className="w-full max-w-md mx-auto mt-3 block text-center bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium rounded-2xl py-3 transition-colors"
->
-  🎁 Магазин призов
-</Link>
-
-      
-
-      {profile.achievements && profile.achievements.length > 0 && (
-        <div className="w-full max-w-md mx-auto mt-6">
-          <h2 className="text-slate-400 text-xs font-medium uppercase tracking-wider mb-2">
-            Мои достижения
-          </h2>
-          <div className="flex flex-col gap-2">
-            {profile.achievements.map((achievement) => (
-              <div
-                key={achievement.id}
-                className="bg-slate-800/60 backdrop-blur-md border border-slate-700 rounded-xl p-3 flex items-center gap-3"
+            <div className="w-full mt-3 grid grid-cols-2 gap-2">
+              <QrZone userId={profile.id} />
+              <Link
+                to="/scan-admin"
+                className="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium rounded-2xl py-3 transition-colors flex items-center justify-center"
               >
-                <span className="text-xl shrink-0">🏆</span>
-                <div className="min-w-0">
-                  <p className="text-slate-100 text-sm font-medium truncate">{achievement.title}</p>
-                  <p className="text-amber-400 text-xs">+{achievement.points} баллов</p>
+                📷 Сканировать
+              </Link>
+            </div>
+
+            <Link
+              to="/prizes"
+              className="w-full mt-3 block text-center bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium rounded-2xl py-3 transition-colors"
+            >
+              🎁 Магазин призов
+            </Link>
+
+            <Link
+              to="/about"
+              className="w-full mt-3 block text-center bg-slate-800/60 hover:bg-slate-800 text-slate-400 hover:text-slate-200 font-medium rounded-2xl py-3 transition-colors flex items-center justify-center gap-2"
+            >
+              ℹ️ О конференции
+            </Link>
+
+            {profile.achievements && profile.achievements.length > 0 && (
+              <div className="w-full mt-6">
+                <h2 className="text-slate-400 text-xs font-medium uppercase tracking-wider mb-2">
+                  Мои достижения
+                </h2>
+                <div className="flex flex-col gap-2">
+                  {profile.achievements.map((achievement) => (
+                    <div
+                      key={achievement.id}
+                      className="bg-slate-800/60 backdrop-blur-md border border-slate-700 rounded-xl p-3 flex items-center gap-3"
+                    >
+                      <span className="text-xl shrink-0">🏆</span>
+                      <div className="min-w-0">
+                        <p className="text-slate-100 text-sm font-medium truncate">{achievement.title}</p>
+                        <p className="text-amber-400 text-xs">+{achievement.points} баллов</p>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
-            ))}
+            )}
+
+            <StationsInfo />
           </div>
         </div>
-      )}
 
-      {profile.achievements && profile.achievements.length > 0 && (
-  <div className="w-full max-w-md mx-auto mt-6">
-    <h2 className="text-slate-400 text-xs font-medium uppercase tracking-wider mb-2">
-      Мои достижения
-    </h2>
-    <div className="flex flex-col gap-2">
-      {profile.achievements.map((achievement) => (
-        <div
-          key={achievement.id}
-          className="bg-slate-800/60 backdrop-blur-md border border-slate-700 rounded-xl p-3 flex items-center gap-3"
-        >
-          <span className="text-xl shrink-0">🏆</span>
-          <div className="min-w-0">
-            <p className="text-slate-100 text-sm font-medium truncate">{achievement.title}</p>
-            <p className="text-amber-400 text-xs">+{achievement.points} баллов</p>
-          </div>
-        </div>
-      ))}
-    </div>
-  </div>
-)}
-
-<StationsInfo />
-
+        <div className="hidden xl:flex flex-col gap-6 w-[280px] shrink-0">
+  <StationProgress userId={profile.id} isQuizPassed={profile.is_quiz_passed} />
+  <AverageComparison myScore={profile.total_score} />
+</div>
+      </div>
     </div>
   );
 };
