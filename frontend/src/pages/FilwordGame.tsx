@@ -420,7 +420,7 @@ export const FilwordGame: React.FC = () => {
       onMouseUp={() => handleMouseUp(state.grid)}
       onMouseLeave={() => handleMouseUp(state.grid)}
     >
-      <div className="w-full max-w-sm sm:max-w-xl bg-slate-950 rounded-2xl p-5">
+      <div className="w-full max-w-sm sm:max-w-xl bg-slate-950 rounded-2xl p-3 sm:p-5">
         <div className="flex justify-between items-center mb-3">
           <span className="text-xs font-medium tracking-wider text-indigo-400">WORD RESEARCHER</span>
           <span className={`text-sm font-medium ${state.secondsLeft <= 15 ? 'text-red-400' : 'text-amber-400'}`}>
@@ -441,9 +441,9 @@ export const FilwordGame: React.FC = () => {
           />
         </div>
 
-        <div className="bg-slate-900 rounded-xl p-2 mb-4 overflow-x-auto select-none" style={{ touchAction: 'none' }}>
+        <div className="bg-slate-900 rounded-xl p-1.5 mb-4 select-none" style={{ touchAction: 'none' }}>
           <div
-            className="grid gap-[2px] mx-auto"
+            className="grid gap-[1px] mx-auto"
             style={{ gridTemplateColumns: `repeat(${state.grid.length}, 1fr)`, width: 'fit-content' }}
           >
             {state.grid.map((row, rowIndex) =>
