@@ -153,6 +153,11 @@ export const Dashboard: React.FC = () => {
       </div>
 
       <div className="w-full max-w-md xl:max-w-6xl flex flex-col xl:flex-row gap-6 xl:items-start">
+        <div className="flex xl:hidden flex-col gap-4 w-full">
+          <LiveLeaderboard />
+          <ScheduleWidget />
+        </div>
+
         <div className="hidden xl:flex flex-col gap-6 w-[280px] shrink-0">
         <LiveLeaderboard />
         <ScheduleWidget />
@@ -211,6 +216,11 @@ export const Dashboard: React.FC = () => {
 
             <StationsInfo />
           </div>
+        </div>
+
+        <div className="flex xl:hidden flex-col gap-4 w-full">
+          <StationProgress userId={profile.id} isQuizPassed={profile.is_quiz_passed} />
+          <AverageComparison myScore={profile.total_score} />
         </div>
 
         <div className="hidden xl:flex flex-col gap-6 w-[280px] shrink-0">
