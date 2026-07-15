@@ -47,7 +47,8 @@ export const AdminPanel: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 px-4 py-8 flex flex-col items-center">
+    <div className="min-h-screen bg-slate-900 px-4 py-8 flex flex-col items-center overflow-x-hidden">
+      {/* Шапка панели */}
       <motion.div
         initial={{ opacity: 0, y: -12 }}
         animate={{ opacity: 1, y: 0 }}
@@ -62,6 +63,7 @@ export const AdminPanel: React.FC = () => {
         </button>
       </motion.div>
 
+      {/* Кнопки навигации */}
       <motion.div
         initial={{ opacity: 0, y: -8 }}
         animate={{ opacity: 1, y: 0 }}
@@ -79,21 +81,26 @@ export const AdminPanel: React.FC = () => {
             }`}
           >
             <span className="text-base">{t.icon}</span>
-            <span>{t.label}</span>
+            <span className="truncate max-w-full px-1">{t.label}</span>
           </button>
         ))}
       </motion.div>
 
+      {/* Основной контент */}
       <div className="w-full max-w-2xl xl:max-w-[1400px] flex flex-col xl:flex-row gap-6 xl:items-start">
-        <div className="flex xl:hidden flex-col gap-4 w-full">
+        
+        {/* Панель статистики: мобильная версия */}
+        <div className="flex xl:hidden flex-col gap-4 w-full max-w-xl mx-auto">
           <StatsPanel />
         </div>
 
+        {/* Панель статистики: десктоп */}
         <div className="hidden xl:flex flex-col gap-6 w-[300px] shrink-0">
           <StatsPanel />
         </div>
 
-        <div className="flex-1 flex flex-col items-center gap-6 min-w-0">
+        {/* Центральная колонка (Вкладки + График) */}
+        <div className="flex-1 flex flex-col items-center gap-6 min-w-0 w-full max-w-xl xl:max-w-none mx-auto">
           <AnimatePresence mode="wait">
             <motion.div
               key={tab}
@@ -112,13 +119,18 @@ export const AdminPanel: React.FC = () => {
             </motion.div>
           </AnimatePresence>
 
-          <PrizeDonut />
+          {/* Ограничиваем максимальную ширину кругового графика на мобилках */}
+          <div className="w-full max-w-xl mx-auto">
+            <PrizeDonut />
+          </div>
         </div>
 
-        <div className="flex xl:hidden flex-col gap-4 w-full">
+        {/* Последние действия: мобильная версия */}
+        <div className="flex xl:hidden flex-col gap-4 w-full max-w-xl mx-auto">
           <ActivityFeed />
         </div>
 
+        {/* Последние действия: десктоп */}
         <div className="hidden xl:flex flex-col gap-6 w-[300px] shrink-0">
           <ActivityFeed />
         </div>
