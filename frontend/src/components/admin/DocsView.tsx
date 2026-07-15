@@ -2,7 +2,7 @@ import React from 'react';
 
 export const DocsView: React.FC = () => {
   return (
-    <div className="w-full max-w-sm bg-slate-950 rounded-2xl p-5 space-y-5">
+    <div className="w-full max-w-2xl mx-auto bg-slate-950 rounded-2xl p-5 space-y-5">
       <div>
         <h2 className="text-indigo-400 text-sm font-semibold mb-2">Сканирование</h2>
         <p className="text-slate-400 text-xs leading-relaxed">

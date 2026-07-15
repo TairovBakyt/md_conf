@@ -71,7 +71,7 @@ export const AdminsView: React.FC = () => {
   };
 
   return (
-    <div className="w-full max-w-sm bg-slate-950 rounded-2xl p-5">
+    <div className="w-full max-w-xl mx-auto bg-slate-950 rounded-2xl p-5">
       <div className="flex items-center justify-between mb-4">
         <span className="text-sm font-medium text-indigo-400">Добавить администратора</span>
       </div>

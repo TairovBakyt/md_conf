@@ -124,7 +124,7 @@ export const GamesView: React.FC = () => {
   const endFilword = () => callAdminAction('end-filword', 'Завершить филворд и вернуть всех участников в личный кабинет?');
 
   return (
-    <div className="w-full max-w-sm bg-slate-950 rounded-2xl p-5">
+    <div className="w-full max-w-xl mx-auto bg-slate-950 rounded-2xl p-5">
       <div className="flex items-center justify-between mb-4">
         <span className="text-sm font-medium text-indigo-400">Доступ к играм</span>
       </div>

@@ -34,7 +34,7 @@ export const RedemptionsView: React.FC = () => {
   }, []);
 
   return (
-    <div className="w-full max-w-sm bg-slate-950 rounded-2xl p-5">
+    <div className="w-full max-w-2xl mx-auto bg-slate-950 rounded-2xl p-5">
       <div className="flex items-center justify-between mb-4">
         <span className="text-sm font-medium text-indigo-400">Выкупленные призы</span>
         <button onClick={fetchRedemptions} className="text-xs text-slate-500 hover:text-slate-300">

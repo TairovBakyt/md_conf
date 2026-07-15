@@ -202,7 +202,7 @@ export const ScanView: React.FC = () => {
   const initials = participant?.username.slice(0, 2).toLowerCase() || '';
 
   return (
-    <div className="w-full max-w-xl bg-slate-950 rounded-2xl p-5">
+    <div className="w-full max-w-xl mx-auto bg-slate-950 rounded-2xl p-5">
       {mode === 'scanning' && (
         <>
           <div className="flex items-center gap-2 mb-4">
