@@ -52,7 +52,7 @@ export const AdminPanel: React.FC = () => {
         initial={{ opacity: 0, y: -12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4 }}
-        className="w-full max-w-md xl:max-w-6xl flex justify-between items-center mb-6"
+        className="w-full max-w-2xl xl:max-w-[1400px] flex justify-between items-center mb-6"
       >
         <span className="text-xl font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-cyan-400">
           MDCONF ADMIN
@@ -66,7 +66,7 @@ export const AdminPanel: React.FC = () => {
         initial={{ opacity: 0, y: -8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4, delay: 0.1 }}
-        className="w-full max-w-md xl:max-w-6xl grid grid-cols-3 xl:grid-cols-6 gap-2 mb-5"
+        className="w-full max-w-2xl xl:max-w-[1400px] grid grid-cols-3 xl:grid-cols-6 gap-2 mb-5"
       >
         {TABS.map((t) => (
           <button
@@ -84,7 +84,11 @@ export const AdminPanel: React.FC = () => {
         ))}
       </motion.div>
 
-      <div className="w-full max-w-md xl:max-w-6xl flex flex-col xl:flex-row gap-6 xl:items-start">
+      <div className="w-full max-w-2xl xl:max-w-[1400px] flex flex-col xl:flex-row gap-6 xl:items-start">
+        <div className="flex xl:hidden flex-col gap-4 w-full">
+          <StatsPanel />
+        </div>
+
         <div className="hidden xl:flex flex-col gap-6 w-[300px] shrink-0">
           <StatsPanel />
         </div>
@@ -97,7 +101,6 @@ export const AdminPanel: React.FC = () => {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -8 }}
               transition={{ duration: 0.25, ease: 'easeOut' }}
-              className="w-full"
             >
               {tab === 'scan' && <ScanView />}
               {tab === 'redemptions' && <RedemptionsView />}
@@ -109,6 +112,10 @@ export const AdminPanel: React.FC = () => {
           </AnimatePresence>
 
           <PrizeDonut />
+        </div>
+
+        <div className="flex xl:hidden flex-col gap-4 w-full">
+          <ActivityFeed />
         </div>
 
         <div className="hidden xl:flex flex-col gap-6 w-[300px] shrink-0">
