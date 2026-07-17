@@ -7,6 +7,7 @@ export interface User {
   is_quiz_passed:boolean;
   is_filword_passed: boolean;
   is_admin:boolean;
+  session_version?: number;
 }
 
 // Описываем достижение (историю баллов)

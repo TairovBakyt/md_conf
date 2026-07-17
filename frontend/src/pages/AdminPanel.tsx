@@ -5,23 +5,53 @@ import { useUser } from '../authorization/UserContext';
 import { ActivityFeed } from '../components/admin/ActivityFeed';
 import { ScanView } from '../components/admin/ScanView';
 import { RedemptionsView } from '../components/admin/RedemptionsView';
+import { PrizeBoothView } from '../components/admin/PrizeBoothView';
 import { AchievementsView } from '../components/admin/AchievementsView';
 import { GamesView } from '../components/admin/GamesView';
 import { AdminsView } from '../components/admin/AdminsView';
 import { DocsView } from '../components/admin/DocsView';
 import { StatsPanel } from '../components/admin/StatsPanel';
 import { PrizeDonut } from '../components/admin/PrizeDonut';
+import { ChatInbox } from '../components/admin/ChatInbox';
+import { AdminChatView } from '../components/admin/AdminChatView';
+import { AdminEventInfoView } from '../components/admin/AdminEventInfoView';
+import { AdminRecoveryView } from '../components/admin/AdminRecoveryView';
+import { AdminSosWidget } from '../components/admin/AdminSosWidget'; // Проверь путь до файла AdminSosWidget.tsx
 
-type AdminTab = 'scan' | 'redemptions' | 'achievements' | 'games' | 'admins' | 'docs';
+type AdminTab =
+  | 'scan'
+  | 'prizeBooth'
+  | 'redemptions'
+  | 'achievements'
+  | 'games'
+  | 'admins'
+  | 'docs'
+  | 'chat'
+  | 'adminChat'
+  | 'eventInfo'
+  | 'recovery';
 
 const TABS: { id: AdminTab; label: string; icon: string }[] = [
   { id: 'scan', label: 'Сканирование', icon: '📷' },
-  { id: 'redemptions', label: 'Выдача призов', icon: '🎁' },
+  { id: 'prizeBooth', label: 'Стойка призов', icon: '🎟️' },
+  { id: 'redemptions', label: 'История выдач', icon: '🎁' },
   { id: 'achievements', label: 'Достижения', icon: '🏆' },
   { id: 'games', label: 'Игры', icon: '🎮' },
   { id: 'admins', label: 'Администраторы', icon: '👥' },
   { id: 'docs', label: 'Документация', icon: '📖' },
+  { id: 'chat', label: 'Сообщения', icon: '💬' },
+  { id: 'adminChat', label: 'Чат админов', icon: '🗨️' },
+  { id: 'eventInfo', label: 'О мероприятии', icon: 'ℹ️' },
+  { id: 'recovery', label: 'Восстановление доступа', icon: '🔑' },
 ];
+
+function getGreeting(): string {
+  const hour = new Date().getHours();
+  if (hour < 6) return 'Доброй ночи';
+  if (hour < 12) return 'Доброе утро';
+  if (hour < 18) return 'Добрый день';
+  return 'Добрый вечер';
+}
 
 export const AdminPanel: React.FC = () => {
   const { user, logout } = useUser();
@@ -52,21 +82,50 @@ export const AdminPanel: React.FC = () => {
         initial={{ opacity: 0, y: -12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4 }}
-        className="w-full max-w-md xl:max-w-6xl flex justify-between items-center mb-6"
+        className="w-full max-w-md xl:max-w-6xl flex justify-between items-center mb-6 gap-3 flex-wrap"
       >
-        <span className="text-xl font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-cyan-400">
-          MDCONF ADMIN
-        </span>
-        <button onClick={handleLogout} className="text-slate-500 hover:text-slate-300 text-xs transition-colors">
-          Выйти
-        </button>
+        <div className="flex flex-col gap-0.5">
+          <span className="text-xl font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-cyan-400">
+            MDCONF ADMIN
+          </span>
+          {user && (
+            <span className="text-base font-semibold text-transparent bg-clip-text bg-gradient-to-r from-amber-300 via-pink-400 to-fuchsia-400 flex items-center gap-1.5">
+              {getGreeting()}, {user.username}! <span className="text-lg">👋</span>
+            </span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-3">
+          {user && (
+            <div className="flex flex-col items-start gap-0.5">
+              <div className="inline-flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-cyan-500 rounded-lg px-3 py-1.5 shadow-lg shadow-indigo-500/20 w-fit">
+                <span className="text-white/70 text-[10px] font-medium uppercase tracking-wider">ID</span>
+                <span className="text-white text-sm font-black font-mono tracking-widest">{user.id}</span>
+              </div>
+              <p className="text-slate-500 text-[10px]">
+                Ваш ID администратора
+              </p>
+            </div>
+          )}
+
+          <button onClick={handleLogout} className="text-slate-500 hover:text-slate-300 text-xs transition-colors">
+            Выйти
+          </button>
+        </div>
       </motion.div>
+        
+          {/* ========================================== */}
+      {/* НОВОЕ: SOS-виджет отображается над вкладками */}
+      <div className="w-full max-w-md xl:max-w-6xl">
+        <AdminSosWidget />
+      </div>
+      {/* ========================================== */}
 
       <motion.div
         initial={{ opacity: 0, y: -8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4, delay: 0.1 }}
-        className="w-full max-w-md xl:max-w-6xl grid grid-cols-3 xl:grid-cols-6 gap-2 mb-5"
+        className="w-full max-w-md xl:max-w-6xl grid grid-cols-3 xl:grid-cols-5 gap-2 mb-5"
       >
         {TABS.map((t) => (
           <button
@@ -104,11 +163,16 @@ export const AdminPanel: React.FC = () => {
               className="w-full"
             >
               {tab === 'scan' && <ScanView />}
+              {tab === 'prizeBooth' && <PrizeBoothView />}
               {tab === 'redemptions' && <RedemptionsView />}
               {tab === 'achievements' && <AchievementsView />}
               {tab === 'games' && <GamesView />}
               {tab === 'admins' && <AdminsView />}
               {tab === 'docs' && <DocsView />}
+              {tab === 'chat' && <ChatInbox />}
+              {tab === 'adminChat' && <AdminChatView />}
+              {tab === 'eventInfo' && <AdminEventInfoView />}
+              {tab === 'recovery' && <AdminRecoveryView />}
             </motion.div>
           </AnimatePresence>
 
@@ -128,3 +192,141 @@ export const AdminPanel: React.FC = () => {
 };
 
 export default AdminPanel;
+
+
+// import React, { useEffect, useState } from 'react';
+// import { useNavigate } from 'react-router-dom';
+// import { motion, AnimatePresence } from 'framer-motion';
+// import { useUser } from '../authorization/UserContext';
+// import { ActivityFeed } from '../components/admin/ActivityFeed';
+// import { ScanView } from '../components/admin/ScanView';
+// import { RedemptionsView } from '../components/admin/RedemptionsView';
+// import { PrizeBoothView } from '../components/admin/PrizeBoothView';
+// import { AchievementsView } from '../components/admin/AchievementsView';
+// import { GamesView } from '../components/admin/GamesView';
+// import { AdminsView } from '../components/admin/AdminsView';
+// import { DocsView } from '../components/admin/DocsView';
+// import { StatsPanel } from '../components/admin/StatsPanel';
+// import { PrizeDonut } from '../components/admin/PrizeDonut';
+// import { ChatInbox } from '../components/admin/ChatInbox';
+
+// type AdminTab = 'scan' | 'prizeBooth' | 'redemptions' | 'achievements' | 'games' | 'admins' | 'docs' | 'chat';
+
+// const TABS: { id: AdminTab; label: string; icon: string }[] = [
+//   { id: 'scan', label: 'Сканирование', icon: '📷' },
+//   { id: 'prizeBooth', label: 'Стойка призов', icon: '🎟️' },
+//   { id: 'redemptions', label: 'История выдач', icon: '🎁' },
+//   { id: 'achievements', label: 'Достижения', icon: '🏆' },
+//   { id: 'games', label: 'Игры', icon: '🎮' },
+//   { id: 'admins', label: 'Администраторы', icon: '👥' },
+//   { id: 'docs', label: 'Документация', icon: '📖' },
+//   { id: 'chat', label: 'Сообщения', icon: '💬' },
+// ];
+
+// export const AdminPanel: React.FC = () => {
+//   const { user, logout } = useUser();
+//   const navigate = useNavigate();
+
+//   const [tab, setTab] = useState<AdminTab>('scan');
+
+//   useEffect(() => {
+//     if (!user) {
+//       navigate('/auth');
+//       return;
+//     }
+//     if (!user.is_admin) {
+//       navigate('/dashboard');
+//       return;
+//     }
+//     // eslint-disable-next-line react-hooks/exhaustive-deps
+//   }, []);
+
+//   const handleLogout = () => {
+//     logout();
+//     navigate('/auth');
+//   };
+
+//   return (
+//     <div className="min-h-screen bg-slate-900 px-4 py-8 flex flex-col items-center">
+//       <motion.div
+//         initial={{ opacity: 0, y: -12 }}
+//         animate={{ opacity: 1, y: 0 }}
+//         transition={{ duration: 0.4 }}
+//         className="w-full max-w-md xl:max-w-6xl flex justify-between items-center mb-6"
+//       >
+//         <span className="text-xl font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-cyan-400">
+//           MDCONF ADMIN
+//         </span>
+//         <button onClick={handleLogout} className="text-slate-500 hover:text-slate-300 text-xs transition-colors">
+//           Выйти
+//         </button>
+//       </motion.div>
+
+//       <motion.div
+//         initial={{ opacity: 0, y: -8 }}
+//         animate={{ opacity: 1, y: 0 }}
+//         transition={{ duration: 0.4, delay: 0.1 }}
+//         className="w-full max-w-md xl:max-w-6xl grid grid-cols-3 xl:grid-cols-4 gap-2 mb-5"
+//       >
+//         {TABS.map((t) => (
+//           <button
+//             key={t.id}
+//             onClick={() => setTab(t.id)}
+//             className={`flex flex-col items-center gap-1 text-xs font-medium rounded-xl py-3 transition-all outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 ${
+//               tab === t.id
+//                 ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30 scale-[1.02]'
+//                 : 'bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-slate-200'
+//             }`}
+//           >
+//             <span className="text-base">{t.icon}</span>
+//             <span>{t.label}</span>
+//           </button>
+//         ))}
+//       </motion.div>
+
+//       <div className="w-full max-w-md xl:max-w-6xl flex flex-col xl:flex-row gap-6 xl:items-start">
+//         <div className="flex xl:hidden flex-col gap-4 w-full">
+//           <StatsPanel />
+//         </div>
+
+//         <div className="hidden xl:flex flex-col gap-6 w-[300px] shrink-0">
+//           <StatsPanel />
+//         </div>
+
+//         <div className="flex-1 flex flex-col items-center gap-6 min-w-0">
+//           <AnimatePresence mode="wait">
+//             <motion.div
+//               key={tab}
+//               initial={{ opacity: 0, y: 16, scale: 0.98 }}
+//               animate={{ opacity: 1, y: 0, scale: 1 }}
+//               exit={{ opacity: 0, y: -8 }}
+//               transition={{ duration: 0.25, ease: 'easeOut' }}
+//               className="w-full"
+//             >
+//               {tab === 'scan' && <ScanView />}
+//               {tab === 'prizeBooth' && <PrizeBoothView />}
+//               {tab === 'redemptions' && <RedemptionsView />}
+//               {tab === 'achievements' && <AchievementsView />}
+//               {tab === 'games' && <GamesView />}
+//               {tab === 'admins' && <AdminsView />}
+//               {tab === 'docs' && <DocsView />}
+//               {tab === 'chat' && <ChatInbox />}
+//             </motion.div>
+//           </AnimatePresence>
+
+//           <PrizeDonut />
+//         </div>
+
+//         <div className="flex xl:hidden flex-col gap-4 w-full">
+//           <ActivityFeed />
+//         </div>
+
+//         <div className="hidden xl:flex flex-col gap-6 w-[300px] shrink-0">
+//           <ActivityFeed />
+//         </div>
+//       </div>
+//     </div>
+//   );
+// };
+
+// export default AdminPanel;

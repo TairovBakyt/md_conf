@@ -16,7 +16,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const saved = localStorage.getItem('mdconf_user');
+    const saved = sessionStorage.getItem('mdconf_user');
 
     if (!saved) {
       setIsLoading(false);
@@ -33,11 +33,11 @@ export function UserProvider({ children }: { children: ReactNode }) {
         if (freshData) {
           const updatedUser = { ...savedUser, ...freshData };
           setUserState(updatedUser);
-          localStorage.setItem('mdconf_user', JSON.stringify(updatedUser));
+          sessionStorage.setItem('mdconf_user', JSON.stringify(updatedUser));
         }
       })
       .catch(() => {
-        // сервер недоступен — остаёмся с данными из localStorage
+        // сервер недоступен — остаёмся с данными из sessionStorage
       })
       .finally(() => {
         setIsLoading(false);
@@ -47,9 +47,9 @@ export function UserProvider({ children }: { children: ReactNode }) {
   const setUser = (newUser: User | null) => {
     setUserState(newUser);
     if (newUser) {
-      localStorage.setItem('mdconf_user', JSON.stringify(newUser));
+      sessionStorage.setItem('mdconf_user', JSON.stringify(newUser));
     } else {
-      localStorage.removeItem('mdconf_user');
+      sessionStorage.removeItem('mdconf_user');
     }
   };
 

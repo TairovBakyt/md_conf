@@ -19,14 +19,13 @@ export const AdminsView: React.FC = () => {
   const handleSearch = async () => {
     const trimmedId = searchId.trim();
     if (!trimmedId) return;
-    const fullId = `user_${trimmedId}`;
 
     setSearchLoading(true);
     setError('');
     setResult(null);
 
     try {
-      const res = await fetch(`${API_URL}/api/user/${fullId}`);
+      const res = await fetch(`${API_URL}/api/user/${trimmedId}`);
       const data = await res.json();
 
       if (!res.ok) {
@@ -76,16 +75,16 @@ export const AdminsView: React.FC = () => {
         <span className="text-sm font-medium text-indigo-400">Добавить администратора</span>
       </div>
 
-      <label className="text-xs text-slate-400 block mb-1.5">ID участника (только цифры)</label>
+      <label className="text-xs text-slate-400 block mb-1.5">ID участника (4 цифры)</label>
       <div className="flex items-center bg-slate-800 border border-slate-700 rounded-lg overflow-hidden mb-2 focus-within:border-indigo-500">
-        <span className="pl-3 py-2.5 text-white text-sm font-mono select-none">user_</span>
         <input
           type="text"
           inputMode="numeric"
+          maxLength={4}
           value={searchId}
           onChange={(e) => setSearchId(e.target.value.replace(/\D/g, ''))}
-          placeholder="74484074"
-          className="flex-1 bg-transparent pr-3 py-2.5 text-slate-100 text-sm font-mono outline-none"
+          placeholder="4231"
+          className="flex-1 bg-transparent px-3 py-2.5 text-slate-100 text-sm font-mono outline-none"
         />
       </div>
       <button

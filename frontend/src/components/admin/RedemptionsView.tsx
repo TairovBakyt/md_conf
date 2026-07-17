@@ -41,7 +41,7 @@ export const RedemptionsView: React.FC = () => {
           Обновить
         </button>
       </div>
-
+    
       {loading ? (
         <p className="text-slate-400 text-sm text-center py-6">Загружаем...</p>
       ) : redemptions.length === 0 ? (

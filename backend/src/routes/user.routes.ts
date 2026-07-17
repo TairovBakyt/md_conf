@@ -39,6 +39,7 @@ router.get('/:id', async (req: Request, res: Response) => {
       is_quiz_passed: isQuizPassed,
       is_filword_passed: isFilwordPassed,
       is_admin: user.is_admin,
+      session_version: user.session_version,
       achievements: achievementsResult.rows,
       redeemed_prizes: redeemedPrizesResult.rows,
     });
