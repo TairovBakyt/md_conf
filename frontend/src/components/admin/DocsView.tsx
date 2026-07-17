@@ -1,4 +1,7 @@
 import React from 'react';
+import { CompanyInfo } from '../CompanyInfo';
+import { ScheduleWidget } from '../ScheduleWidget';
+import { SpeakersList } from '../SpeakersList';
 
 export const DocsView: React.FC = () => {
   return (
@@ -50,6 +53,49 @@ export const DocsView: React.FC = () => {
         <p className="text-slate-400 text-xs leading-relaxed">
           Назначай или снимай права администратора у участников по их ID. Будь осторожен — у назначенного администратора появится полный доступ к этой панели.
         </p>
+      </div>
+
+      <div>
+        <h2 className="text-indigo-400 text-sm font-semibold mb-2">О мероприятии</h2>
+        <p className="text-slate-400 text-xs leading-relaxed">
+          MDConf 2026 — квест-конференция: участники получают персональный цифровой профиль с QR-кодом,
+          проходят игровые станции в свободном порядке и копят баллы, которые можно тратить в магазине призов
+          прямо в течение дня.
+        </p>
+        <p className="text-slate-400 text-xs leading-relaxed mt-2">
+          <strong className="text-slate-300">Магазин призов по уровням:</strong> Low (10–30 баллов) — стикерпаки,
+          картхолдеры; Middle (40–70 баллов) — бутылки, шопперы; High (80+ баллов) — футболки, подписки на
+          ИТ-сервисы, билет на закрытый Afterparty.
+        </p>
+        <p className="text-slate-400 text-xs leading-relaxed mt-2">
+          Актуальную программу конференции, информацию о компании и список спикеров участники видят прямо у себя
+          на дашборде.
+        </p>
+      </div>
+
+      <div className="border-t border-slate-800 pt-5 space-y-5">
+        <div>
+          {/* <h2 className="text-indigo-400 text-sm font-semibold mb-2">О конференции (как видят участники)</h2> */}
+          {/* <p className="text-slate-400 text-xs leading-relaxed">
+            MDCONF — ежегодная техническая конференция для разработчиков, где участники не только слушают
+            доклады, но и проходят интерактивный квест: викторину, поиск слов и станции с заданиями, зарабатывая
+            баллы на «паспорт» участника.
+          </p> */}
+          <p className="text-slate-300 text-xs font-medium mt-3 mb-1.5">Как это работает</p>
+          <ul className="text-slate-400 text-xs leading-relaxed space-y-1 list-disc list-inside">
+            <li>Зарегистрируйся и получи персональный QR-код</li>
+            <li>Проходи станции, викторину и филворд — получай баллы</li>
+            <li>Трать баллы в магазине призов в течение дня</li>
+          </ul>
+          <p className="text-slate-300 text-xs font-medium mt-3 mb-1.5">Организатор</p>
+          <p className="text-slate-400 text-xs leading-relaxed">
+            [сюда впишешь реальную информацию об организаторе — компания, контакты, соцсети]
+          </p>
+        </div>
+
+        <CompanyInfo />
+        <ScheduleWidget />
+        <SpeakersList />
       </div>
     </div>
   );

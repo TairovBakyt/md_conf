@@ -19,7 +19,12 @@ export const Dashboard: React.FC = () => {
   const navigate = useNavigate();
 
   const [profile, setProfile] = useState<User | null>(null);
-  const [gameSettings, setGameSettings] = useState({ quiz_unlocked: false, filword_unlocked: false });
+  const [gameSettings, setGameSettings] = useState({
+    quiz_unlocked: false,
+    filword_unlocked: false,
+    quiz_mode: 'individual' as 'individual' | 'synced',
+    filword_mode: 'individual' as 'individual' | 'synced',
+  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -53,6 +58,18 @@ export const Dashboard: React.FC = () => {
       if (settingsRes.ok) {
         const settingsData = await settingsRes.json();
         setGameSettings(settingsData);
+
+        // Автоматически затягиваем участника на /quiz или /filword только
+        // если админ выбрал синхронизированный режим — в индивидуальном
+        // режиме редиректа нет, вход строго по клику.
+        if (settingsData.quiz_unlocked && settingsData.quiz_mode === 'synced' && !data.is_quiz_passed) {
+          navigate('/quiz');
+          return;
+        }
+        if (settingsData.filword_unlocked && settingsData.filword_mode === 'synced' && !data.is_filword_passed) {
+          navigate('/filword');
+          return;
+        }
       }
     } catch (err) {
       console.error(err);
@@ -189,6 +206,10 @@ export const Dashboard: React.FC = () => {
                 </svg>
                 Викторина «Hardcore QA» пройдена
               </div>
+            ) : gameSettings.quiz_unlocked && gameSettings.quiz_mode === 'synced' ? (
+              <div className="w-full mt-3 p-4 bg-indigo-950/40 border border-indigo-500/30 rounded-2xl flex items-center justify-center gap-2 text-indigo-300 text-sm">
+                ⏳ Викторина сейчас начнётся у всех одновременно — держите приложение открытым
+              </div>
             ) : gameSettings.quiz_unlocked ? (
               <button
                 onClick={handleStartQuiz}
@@ -209,6 +230,10 @@ export const Dashboard: React.FC = () => {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
                 Филворд «Word Researcher» пройден
+              </div>
+            ) : gameSettings.filword_unlocked && gameSettings.filword_mode === 'synced' ? (
+              <div className="w-full mt-3 p-4 bg-indigo-950/40 border border-indigo-500/30 rounded-2xl flex items-center justify-center gap-2 text-indigo-300 text-sm">
+                ⏳ Филворд сейчас начнётся у всех одновременно — держите приложение открытым
               </div>
             ) : gameSettings.filword_unlocked ? (
               <button

@@ -14,9 +14,7 @@ import { StatsPanel } from '../components/admin/StatsPanel';
 import { PrizeDonut } from '../components/admin/PrizeDonut';
 import { ChatInbox } from '../components/admin/ChatInbox';
 import { AdminChatView } from '../components/admin/AdminChatView';
-import { AdminEventInfoView } from '../components/admin/AdminEventInfoView';
 import { AdminRecoveryView } from '../components/admin/AdminRecoveryView';
-import { AdminSosWidget } from '../components/admin/AdminSosWidget'; // Проверь путь до файла AdminSosWidget.tsx
 
 type AdminTab =
   | 'scan'
@@ -28,7 +26,6 @@ type AdminTab =
   | 'docs'
   | 'chat'
   | 'adminChat'
-  | 'eventInfo'
   | 'recovery';
 
 const TABS: { id: AdminTab; label: string; icon: string }[] = [
@@ -38,10 +35,9 @@ const TABS: { id: AdminTab; label: string; icon: string }[] = [
   { id: 'achievements', label: 'Достижения', icon: '🏆' },
   { id: 'games', label: 'Игры', icon: '🎮' },
   { id: 'admins', label: 'Администраторы', icon: '👥' },
-  { id: 'docs', label: 'Документация', icon: '📖' },
+  { id: 'docs', label: 'Info', icon: '📖' },
   { id: 'chat', label: 'Сообщения', icon: '💬' },
   { id: 'adminChat', label: 'Чат админов', icon: '🗨️' },
-  { id: 'eventInfo', label: 'О мероприятии', icon: 'ℹ️' },
   { id: 'recovery', label: 'Восстановление доступа', icon: '🔑' },
 ];
 
@@ -113,13 +109,6 @@ export const AdminPanel: React.FC = () => {
           </button>
         </div>
       </motion.div>
-        
-          {/* ========================================== */}
-      {/* НОВОЕ: SOS-виджет отображается над вкладками */}
-      <div className="w-full max-w-md xl:max-w-6xl">
-        <AdminSosWidget />
-      </div>
-      {/* ========================================== */}
 
       <motion.div
         initial={{ opacity: 0, y: -8 }}
@@ -171,7 +160,6 @@ export const AdminPanel: React.FC = () => {
               {tab === 'docs' && <DocsView />}
               {tab === 'chat' && <ChatInbox />}
               {tab === 'adminChat' && <AdminChatView />}
-              {tab === 'eventInfo' && <AdminEventInfoView />}
               {tab === 'recovery' && <AdminRecoveryView />}
             </motion.div>
           </AnimatePresence>

@@ -375,6 +375,194 @@ router.post('/sos-clear', async (req: Request, res: Response) => {
   }
 });
 
+router.post('/set-game-mode', async (req: Request, res: Response) => {
+  const { adminId, game, mode } = req.body;
+
+  if (game !== 'quiz' && game !== 'filword') {
+    return res.status(400).json({ error: 'Неизвестная игра' });
+  }
+  if (mode !== 'individual' && mode !== 'synced') {
+    return res.status(400).json({ error: 'Неизвестный режим' });
+  }
+
+  try {
+    const adminCheck = await pool.query('SELECT is_admin FROM users WHERE id = $1', [adminId]);
+    if (!adminCheck.rows[0]?.is_admin) {
+      return res.status(403).json({ error: 'Доступ запрещён' });
+    }
+
+    const column = game === 'quiz' ? 'quiz_mode' : 'filword_mode';
+    await pool.query(`UPDATE event_settings SET ${column} = $1 WHERE id = 1`, [mode]);
+
+    return res.json({ success: true, game, mode });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Ошибка изменения режима' });
+  }
+});
+
+router.post('/open-quiz', async (req: Request, res: Response) => {
+  const { adminId } = req.body;
+
+  try {
+    const adminCheck = await pool.query('SELECT is_admin FROM users WHERE id = $1', [adminId]);
+    if (!adminCheck.rows[0]?.is_admin) {
+      return res.status(403).json({ error: 'Доступ запрещён' });
+    }
+
+    await pool.query('UPDATE event_settings SET quiz_unlocked = true, quiz_start_time = NULL WHERE id = 1');
+    await pool.query('DELETE FROM quiz_lobby');
+
+    return res.json({ success: true });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Ошибка открытия викторины' });
+  }
+});
+
+router.post('/start-quiz-live', async (req: Request, res: Response) => {
+  const { adminId } = req.body;
+
+  try {
+    const adminCheck = await pool.query('SELECT is_admin FROM users WHERE id = $1', [adminId]);
+    if (!adminCheck.rows[0]?.is_admin) {
+      return res.status(403).json({ error: 'Доступ запрещён' });
+    }
+
+    await pool.query('DELETE FROM quiz_answers');
+    await pool.query('DELETE FROM quiz_final_results');
+    await pool.query('UPDATE event_settings SET quiz_start_time = NOW(), quiz_paused_at = NULL, quiz_paused_seconds = 0 WHERE id = 1');
+
+    return res.json({ success: true });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Ошибка запуска викторины' });
+  }
+});
+
+router.post('/pause-quiz', async (req: Request, res: Response) => {
+  const { adminId } = req.body;
+
+  try {
+    const adminCheck = await pool.query('SELECT is_admin FROM users WHERE id = $1', [adminId]);
+    if (!adminCheck.rows[0]?.is_admin) {
+      return res.status(403).json({ error: 'Доступ запрещён' });
+    }
+
+    await pool.query(
+      'UPDATE event_settings SET quiz_paused_at = NOW() WHERE id = 1 AND quiz_paused_at IS NULL'
+    );
+
+    return res.json({ success: true });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Ошибка постановки на паузу' });
+  }
+});
+
+router.post('/resume-quiz', async (req: Request, res: Response) => {
+  const { adminId } = req.body;
+
+  try {
+    const adminCheck = await pool.query('SELECT is_admin FROM users WHERE id = $1', [adminId]);
+    if (!adminCheck.rows[0]?.is_admin) {
+      return res.status(403).json({ error: 'Доступ запрещён' });
+    }
+
+    await pool.query(`
+      UPDATE event_settings
+      SET quiz_paused_seconds = quiz_paused_seconds + EXTRACT(EPOCH FROM (NOW() - quiz_paused_at))::INT,
+          quiz_paused_at = NULL
+      WHERE id = 1 AND quiz_paused_at IS NOT NULL
+    `);
+
+    return res.json({ success: true });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Ошибка снятия с паузы' });
+  }
+});
+
+router.post('/end-quiz', async (req: Request, res: Response) => {
+  const { adminId } = req.body;
+
+  try {
+    const adminCheck = await pool.query('SELECT is_admin FROM users WHERE id = $1', [adminId]);
+    if (!adminCheck.rows[0]?.is_admin) {
+      return res.status(403).json({ error: 'Доступ запрещён' });
+    }
+
+    await pool.query(`
+      UPDATE event_settings
+      SET quiz_unlocked = false, quiz_start_time = NULL, quiz_paused_at = NULL, quiz_paused_seconds = 0
+      WHERE id = 1
+    `);
+    await pool.query('DELETE FROM quiz_lobby');
+
+    return res.json({ success: true });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Ошибка завершения викторины' });
+  }
+});
+
+router.post('/open-filword', async (req: Request, res: Response) => {
+  const { adminId } = req.body;
+
+  try {
+    const adminCheck = await pool.query('SELECT is_admin FROM users WHERE id = $1', [adminId]);
+    if (!adminCheck.rows[0]?.is_admin) {
+      return res.status(403).json({ error: 'Доступ запрещён' });
+    }
+
+    await pool.query('UPDATE event_settings SET filword_unlocked = true, filword_start_time = NULL WHERE id = 1');
+    await pool.query('DELETE FROM filword_lobby');
+
+    return res.json({ success: true });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Ошибка открытия филворда' });
+  }
+});
+
+router.post('/start-filword-live', async (req: Request, res: Response) => {
+  const { adminId } = req.body;
+
+  try {
+    const adminCheck = await pool.query('SELECT is_admin FROM users WHERE id = $1', [adminId]);
+    if (!adminCheck.rows[0]?.is_admin) {
+      return res.status(403).json({ error: 'Доступ запрещён' });
+    }
+
+    await pool.query('DELETE FROM filword_sessions');
+    await pool.query('UPDATE event_settings SET filword_start_time = NOW() WHERE id = 1');
+
+    return res.json({ success: true });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Ошибка запуска филворда' });
+  }
+});
+
+router.post('/end-filword', async (req: Request, res: Response) => {
+  const { adminId } = req.body;
+
+  try {
+    const adminCheck = await pool.query('SELECT is_admin FROM users WHERE id = $1', [adminId]);
+    if (!adminCheck.rows[0]?.is_admin) {
+      return res.status(403).json({ error: 'Доступ запрещён' });
+    }
+
+    await pool.query('UPDATE event_settings SET filword_unlocked = false, filword_start_time = NULL WHERE id = 1');
+    await pool.query('DELETE FROM filword_lobby');
+
+    return res.json({ success: true });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Ошибка завершения филворда' });
+  }
+});
+
 export default router;
 
 // import { Router, Request, Response } from 'express';
