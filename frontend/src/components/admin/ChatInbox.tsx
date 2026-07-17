@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { useUser } from '../../authorization/UserContext';
 import { API_URL } from '../../config';
 
 const EMOJI_LIST = ['😀', '😂', '😍', '👍', '🙏', '🎉', '❤️', '😢', '😮', '🤔', '👋', '🔥'];
@@ -51,7 +50,7 @@ function fileToBase64(file: File): Promise<string> {
 }
 
 export const ChatInbox: React.FC = () => {
-  const { user } = useUser();
+  // const { user } = useUser();
   const [inbox, setInbox] = useState<InboxItem[]>([]);
   const [selected, setSelected] = useState<InboxItem | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
