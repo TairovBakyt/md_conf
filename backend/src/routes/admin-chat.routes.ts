@@ -206,4 +206,25 @@ router.post('/hide/:id', async (req: Request, res: Response) => {
   }
 });
 
+
+router.delete('/thread/:selfId/:otherId', async (req: Request, res: Response) => {
+  const { selfId, otherId } = req.params;
+
+  try {
+    await pool.query(
+      `UPDATE admin_messages
+       SET hidden_from_sender = CASE WHEN sender_id = $1 THEN true ELSE hidden_from_sender END,
+           hidden_from_recipient = CASE WHEN recipient_id = $1 THEN true ELSE hidden_from_recipient END
+       WHERE (sender_id = $1 AND recipient_id = $2) OR (sender_id = $2 AND recipient_id = $1)`,
+      [selfId, otherId]
+    );
+    return res.json({ success: true });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Ошибка удаления переписки' });
+  }
+});
+
+
+
 export default router;

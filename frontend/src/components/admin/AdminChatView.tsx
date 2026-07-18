@@ -77,6 +77,7 @@ export const AdminChatView: React.FC = () => {
   const inboxPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const threadPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -200,6 +201,7 @@ export const AdminChatView: React.FC = () => {
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
+      if (cameraInputRef.current) cameraInputRef.current.value = '';
     }
   };
 
@@ -321,6 +323,32 @@ export const AdminChatView: React.FC = () => {
     }
   };
 
+  // Удаляет всю переписку — только у себя, собеседник продолжит видеть
+  // историю как обычно (симметрия с per-message hide выше).
+  const handleDeleteThread = async () => {
+    if (!user || !selectedOther) return;
+    if (!confirm(`Удалить переписку с ${selectedOther.username}? Она пропадёт только у вас.`)) return;
+    try {
+      await fetch(`${API_URL}/api/admin-chat/thread/${user.id}/${selectedOther.id}`, { method: 'DELETE' });
+      closeThread();
+      fetchInbox();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleDeleteThreadFromList = async (otherId: string, username: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!user) return;
+    if (!confirm(`Удалить переписку с ${username}? Она пропадёт только у вас.`)) return;
+    try {
+      await fetch(`${API_URL}/api/admin-chat/thread/${user.id}/${otherId}`, { method: 'DELETE' });
+      fetchInbox();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   // ---- Экран списка диалогов ----
   if (view === 'list') {
     return (
@@ -352,11 +380,19 @@ export const AdminChatView: React.FC = () => {
                 <p className="text-slate-100 text-sm font-medium">{item.username}</p>
                 <p className="text-slate-500 text-xs truncate">{item.lastMessage}</p>
               </div>
-              {item.unreadCount > 0 && (
-                <span className="bg-indigo-600 text-white text-xs font-medium rounded-full px-2 py-0.5 shrink-0 ml-2">
-                  {item.unreadCount}
-                </span>
-              )}
+              <div className="flex items-center gap-2 shrink-0 ml-2">
+                {item.unreadCount > 0 && (
+                  <span className="bg-indigo-600 text-white text-xs font-medium rounded-full px-2 py-0.5">
+                    {item.unreadCount}
+                  </span>
+                )}
+                <button
+                  onClick={(e) => handleDeleteThreadFromList(item.otherId, item.username, e)}
+                  className="text-red-400 hover:text-red-300 text-sm px-1"
+                >
+                  🗑
+                </button>
+              </div>
             </div>
           ))}
         </div>
@@ -408,9 +444,14 @@ export const AdminChatView: React.FC = () => {
       <div className="w-full max-w-xl mx-auto bg-slate-950 rounded-2xl p-5">
         <div className="flex items-center justify-between mb-4">
           <span className="text-sm font-medium text-indigo-400">{selectedOther.username}</span>
-          <button onClick={closeThread} className="text-slate-500 hover:text-slate-300 text-xs">
-            ← Назад
-          </button>
+          <div className="flex items-center gap-3">
+            <button onClick={handleDeleteThread} className="text-red-400 text-xs hover:text-red-300">
+              Удалить чат
+            </button>
+            <button onClick={closeThread} className="text-slate-500 text-xs hover:text-slate-300">
+              ← Назад
+            </button>
+          </div>
         </div>
 
         {latestOther && (
@@ -527,6 +568,22 @@ export const AdminChatView: React.FC = () => {
             className="bg-slate-800 hover:bg-slate-700 rounded-lg px-2.5 py-2.5 text-sm transition-colors shrink-0 disabled:opacity-50"
           >
             📎
+          </button>
+
+          <input
+            ref={cameraInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            onChange={handleFileSelect}
+            className="hidden"
+          />
+          <button
+            onClick={() => cameraInputRef.current?.click()}
+            disabled={uploading}
+            className="bg-slate-800 hover:bg-slate-700 rounded-lg px-2.5 py-2.5 text-sm transition-colors shrink-0 disabled:opacity-50"
+          >
+            📸
           </button>
 
           <button
