@@ -34,7 +34,7 @@ export const GamesView: React.FC = () => {
     station6_unlocked: false,
     quiz_paused: false
   });
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [quizLobbyCount, setQuizLobbyCount] = useState(0);
   const [quizModeChoice, setQuizModeChoice] = useState<'individual' | 'synced'>('individual');
@@ -75,8 +75,10 @@ export const GamesView: React.FC = () => {
     return () => clearInterval(interval);
   }, [gameSettings.quiz_mode, gameSettings.quiz_unlocked]);
 
-  const fetchGameSettings = async () => {
-    setLoading(true);
+  // isInitial=true показывает "Загружаем..." только при первом открытии вкладки.
+  // Фоновый поллинг (isInitial=false) обновляет данные тихо, без мигания интерфейса.
+  const fetchGameSettings = async (isInitial = false) => {
+    if (isInitial) setLoading(true);
     try {
       const res = await fetch(`${API_URL}/api/settings`);
       const data = await res.json();
@@ -86,13 +88,13 @@ export const GamesView: React.FC = () => {
     } catch (err) {
       console.error(err);
     } finally {
-      setLoading(false);
+      if (isInitial) setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchGameSettings();
-    const interval = setInterval(fetchGameSettings, 5000);
+    fetchGameSettings(true);
+    const interval = setInterval(() => fetchGameSettings(false), 5000);
     return () => clearInterval(interval);
   }, []);
 
@@ -423,7 +425,6 @@ export const GamesView: React.FC = () => {
 };
 
 export default GamesView;
-
 
 // import React, { useEffect, useState } from 'react';
 // import { useUser } from '../../authorization/UserContext';

@@ -17,7 +17,10 @@ const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 
 app.use(cors());
-app.use(express.json());
+// Лимит увеличен до 15mb — фото/видео/аудио с телефона в base64 (JSON body)
+// не помещались в дефолтный лимит express.json() в 100kb, из-за чего
+// отправка вложений с мобильных устройств зависала на "Загружаем..."
+app.use(express.json({ limit: '15mb' }));
 
 app.use('/api/auth', authRoutes);
 app.use('/api/user', userRoutes);
