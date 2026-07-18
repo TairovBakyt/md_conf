@@ -15,7 +15,7 @@ import { SpeakersList } from '../components/SpeakersList';
 import { HelpBot } from '../components/HelpBot';
 
 export const Dashboard: React.FC = () => {
-  const { user, logout } = useUser();
+  const { user, setUser, logout } = useUser();
   const navigate = useNavigate();
 
   const [profile, setProfile] = useState<User | null>(null);
@@ -57,6 +57,15 @@ export const Dashboard: React.FC = () => {
       ) {
         logout();
         navigate('/auth');
+        return;
+      }
+
+      // Если участнику только что выдали права администратора (пока он сидит
+      // на дашборде) — сразу обновляем локального user и переносим на /admin,
+      // без нужды вручную перезагружать страницу или перелогиниваться.
+      if (data.is_admin && !user.is_admin) {
+        setUser({ ...user, is_admin: true, admin_permissions: data.admin_permissions ?? null });
+        navigate('/admin');
         return;
       }
 

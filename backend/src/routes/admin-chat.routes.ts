@@ -7,7 +7,7 @@ router.get('/admins/:selfId', async (req: Request, res: Response) => {
   const { selfId } = req.params;
   try {
     const result = await pool.query(
-      'SELECT id, username FROM users WHERE is_admin = true AND id != $1 ORDER BY username ASC',
+      'SELECT id, username, admin_permissions, is_main_admin FROM users WHERE is_admin = true AND id != $1 ORDER BY username ASC',
       [selfId]
     );
     return res.json(result.rows);
@@ -25,6 +25,8 @@ router.get('/inbox/:selfId', async (req: Request, res: Response) => {
       SELECT
         u.id AS other_id,
         u.username,
+        u.admin_permissions,
+        u.is_main_admin,
         (
           SELECT COALESCE(message, '📎 вложение')
           FROM admin_messages
@@ -64,6 +66,8 @@ router.get('/inbox/:selfId', async (req: Request, res: Response) => {
     return res.json(result.rows.map((r) => ({
       otherId: r.other_id,
       username: r.username,
+      adminPermissions: r.admin_permissions,
+      isMainAdmin: r.is_main_admin,
       lastMessage: r.last_message,
       lastAt: r.last_at,
       unreadCount: Number(r.unread_count),

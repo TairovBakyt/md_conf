@@ -16,23 +16,61 @@ interface FullParticipant {
 
 type SubTab = 'search' | 'fullList';
 
+// Выбранная подвкладка, поиск и результаты — переживает F5. Полный список
+// участников (fullList) не сохраняем — он и так подтягивается заново при
+// каждом заходе на подвкладку, если пуст.
+const RECOVERY_STORAGE_KEY = 'admin_recovery_state';
+
+interface PersistedRecoveryState {
+  subTab: SubTab;
+  query: string;
+  results: SearchResult[];
+  resetTarget: SearchResult | null;
+  fullListFilter: string;
+  revealedId: string | null;
+}
+
+function loadPersistedRecoveryState(): PersistedRecoveryState {
+  try {
+    const raw = sessionStorage.getItem(RECOVERY_STORAGE_KEY);
+    if (raw) return JSON.parse(raw) as PersistedRecoveryState;
+  } catch {
+    // не критично
+  }
+  return { subTab: 'search', query: '', results: [], resetTarget: null, fullListFilter: '', revealedId: null };
+}
+
+
+
 export const AdminRecoveryView: React.FC = () => {
+  const [persistedRecovery] = useState(loadPersistedRecoveryState);
   const { user } = useUser();
 
-  const [subTab, setSubTab] = useState<SubTab>('search');
+  const [subTab, setSubTab] = useState<SubTab>(persistedRecovery.subTab);
 
-  const [query, setQuery] = useState('');
-  const [results, setResults] = useState<SearchResult[]>([]);
+  const [query, setQuery] = useState(persistedRecovery.query);
+  const [results, setResults] = useState<SearchResult[]>(persistedRecovery.results);
   const [searching, setSearching] = useState(false);
-  const [resetTarget, setResetTarget] = useState<SearchResult | null>(null);
+  const [resetTarget, setResetTarget] = useState<SearchResult | null>(persistedRecovery.resetTarget);
   const [newPin, setNewPin] = useState('');
   const [resetBusy, setResetBusy] = useState(false);
   const [resetMsg, setResetMsg] = useState('');
 
   const [fullList, setFullList] = useState<FullParticipant[]>([]);
   const [fullListLoading, setFullListLoading] = useState(false);
-  const [fullListFilter, setFullListFilter] = useState('');
-  const [revealedId, setRevealedId] = useState<string | null>(null);
+  const [fullListFilter, setFullListFilter] = useState(persistedRecovery.fullListFilter);
+  const [revealedId, setRevealedId] = useState<string | null>(persistedRecovery.revealedId);
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(
+        RECOVERY_STORAGE_KEY,
+        JSON.stringify({ subTab, query, results, resetTarget, fullListFilter, revealedId })
+      );
+    } catch {
+      // не критично
+    }
+  }, [subTab, query, results, resetTarget, fullListFilter, revealedId]);
 
   const handleSearch = async () => {
     if (!query.trim()) {

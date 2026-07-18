@@ -44,8 +44,8 @@ function getShuffledIndices(userId: string, questionIndex: number, length: numbe
 
 // Персональный набор из 20 вопросов для конкретного участника, выбранный
 // из общего банка (сейчас 200) — используется только индивидуальным
-// режимом. Синхронизированный режим идёт по банку последовательно и
-// одинаково для всех (иначе общий таймер не имел бы смысла).
+// режимом. Синхронизированный режим использует свой собственный пул,
+// сгенерированный админом один раз при старте (см. quiz_question_pool).
 function getUserQuestionPool(userId: string): number[] {
   const seed = hashStringToSeed(`pool-${userId}`);
   const rand = seededRandom(seed);
@@ -67,9 +67,20 @@ async function getAnsweredCount(userId: string): Promise<number> {
 
 async function getQuizSettings() {
   const result = await pool.query(
-    'SELECT quiz_unlocked, quiz_mode, quiz_start_time, quiz_paused_at, quiz_paused_seconds FROM event_settings WHERE id = 1'
+    'SELECT quiz_unlocked, quiz_mode, quiz_start_time, quiz_paused_at, quiz_paused_seconds, quiz_question_pool FROM event_settings WHERE id = 1'
   );
   return result.rows[0] ?? {};
+}
+
+// Достаёт реальный индекс вопроса из банка для synced-режима: если пул
+// не сгенерирован (например, старая сессия до этой фичи) — откатываемся
+// на последовательный порядок, чтобы ничего не сломать.
+function resolveSyncedQuestionIndex(settings: any, questionIndex: number): number {
+  const pool = settings.quiz_question_pool as number[] | null | undefined;
+  if (Array.isArray(pool) && pool.length === QUESTIONS_PER_USER) {
+    return pool[questionIndex];
+  }
+  return questionIndex;
 }
 
 // ---------- индивидуальный режим ----------
@@ -327,8 +338,10 @@ router.get('/live-state/:userId', async (req: Request, res: Response) => {
     );
     const alreadyAnswered = alreadyAnsweredResult.rows[0] ?? null;
 
+    const realQuestionIndex = resolveSyncedQuestionIndex(settings, state.questionIndex);
+
     if (state.phase === 'question') {
-      const fullQuestion = questions[state.questionIndex];
+      const fullQuestion = questions[realQuestionIndex];
       const shuffledIndices = getShuffledIndices(userId, state.questionIndex, fullQuestion.options.length);
       const shuffledOptions = shuffledIndices.map((origIdx) => fullQuestion.options[origIdx]);
 
@@ -349,7 +362,7 @@ router.get('/live-state/:userId', async (req: Request, res: Response) => {
       });
     }
 
-    const fullQuestion = questions[state.questionIndex];
+    const fullQuestion = questions[realQuestionIndex];
     const leaderboard = await getLeaderboard(state.questionIndex);
 
     return res.json({
@@ -424,7 +437,8 @@ router.post('/answer', async (req: Request, res: Response) => {
         return res.status(400).json({ error: 'Время на этот вопрос истекло, ответ не принят' });
       }
 
-      const fullQuestion = questions[state.questionIndex];
+      const realQuestionIndex = resolveSyncedQuestionIndex(settings, state.questionIndex);
+      const fullQuestion = questions[realQuestionIndex];
       const shuffledIndices = getShuffledIndices(userId, state.questionIndex, fullQuestion.options.length);
       const originalSelectedIndex = shuffledIndices[Number(selectedOption)];
       const isCorrect = originalSelectedIndex === fullQuestion.correct;

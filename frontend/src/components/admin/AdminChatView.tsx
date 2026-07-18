@@ -1,6 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useUser } from '../../authorization/UserContext';
 import { API_URL } from '../../config';
+import { type AdminTabId } from '../../adminTabs';
+
+const LONG_PRESS_MS = 550;
 
 function renderMessageText(text: string): React.ReactNode[] {
   const parts = text.split(/(https?:\/\/[^\s]+)/g);
@@ -31,9 +34,34 @@ function fileToBase64(file: File): Promise<string> {
   });
 }
 
+function AccessBadge({
+  permissions,
+  isMainAdmin,
+}: {
+  permissions: AdminTabId[] | null | undefined;
+  isMainAdmin?: boolean;
+}) {
+  const isFull = !permissions;
+  return (
+    <span
+      className={`text-[9px] font-medium px-1.5 py-0.5 rounded-full shrink-0 ${
+        isMainAdmin
+          ? 'bg-purple-950/60 text-purple-300 border border-purple-500/30'
+          : isFull
+          ? 'bg-emerald-950/60 text-emerald-400 border border-emerald-500/30'
+          : 'bg-amber-950/60 text-amber-400 border border-amber-500/30'
+      }`}
+    >
+      {isMainAdmin ? '👑 Главный' : isFull ? 'Полный' : 'Частичный'}
+    </span>
+  );
+}
+
 interface InboxItem {
   otherId: string;
   username: string;
+  adminPermissions: AdminTabId[] | null;
+  isMainAdmin?: boolean;
   lastMessage: string;
   lastAt: string;
   unreadCount: number;
@@ -42,6 +70,8 @@ interface InboxItem {
 interface AdminItem {
   id: string;
   username: string;
+  admin_permissions: AdminTabId[] | null;
+  is_main_admin?: boolean;
 }
 
 interface AdminMessage {
@@ -56,13 +86,34 @@ interface AdminMessage {
 
 type View = 'list' | 'newChat' | 'thread';
 
+// Какой экран/собеседник был открыт — переживает F5.
+const ADMINCHAT_STORAGE_KEY = 'admin_adminchat_state';
+
+interface PersistedAdminChatState {
+  view: View;
+  selectedOther: { id: string; username: string; adminPermissions: AdminTabId[] | null; isMainAdmin?: boolean } | null;
+}
+
+function loadPersistedAdminChatState(): PersistedAdminChatState {
+  try {
+    const raw = sessionStorage.getItem(ADMINCHAT_STORAGE_KEY);
+    if (raw) return JSON.parse(raw) as PersistedAdminChatState;
+  } catch {
+    // не критично
+  }
+  return { view: 'list', selectedOther: null };
+}
+
 export const AdminChatView: React.FC = () => {
   const { user } = useUser();
+  const [persisted] = useState(loadPersistedAdminChatState);
 
-  const [view, setView] = useState<View>('list');
+  const [view, setView] = useState<View>(persisted.view);
   const [inbox, setInbox] = useState<InboxItem[]>([]);
   const [allAdmins, setAllAdmins] = useState<AdminItem[]>([]);
-  const [selectedOther, setSelectedOther] = useState<{ id: string; username: string } | null>(null);
+  const [selectedOther, setSelectedOther] = useState<{ id: string; username: string; adminPermissions: AdminTabId[] | null; isMainAdmin?: boolean } | null>(
+    persisted.selectedOther
+  );
   const [messages, setMessages] = useState<AdminMessage[]>([]);
   const [input, setInput] = useState('');
   const [showEmoji, setShowEmoji] = useState(false);
@@ -74,6 +125,14 @@ export const AdminChatView: React.FC = () => {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editText, setEditText] = useState('');
 
+  // Массовый выбор в списке диалогов
+  const [listSelectionMode, setListSelectionMode] = useState(false);
+  const [selectedThreadIds, setSelectedThreadIds] = useState<Set<string>>(new Set());
+
+  // Массовый выбор внутри открытой переписки
+  const [msgSelectionMode, setMsgSelectionMode] = useState(false);
+  const [selectedMsgIds, setSelectedMsgIds] = useState<Set<number>>(new Set());
+
   const inboxPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const threadPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -81,8 +140,18 @@ export const AdminChatView: React.FC = () => {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressFiredRef = useRef(false);
 
   const EMOJI_LIST = ['😀', '😂', '👍', '🙏', '🎉', '❤️', '😢', '😮', '🤔', '👋', '🔥', '✅'];
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(ADMINCHAT_STORAGE_KEY, JSON.stringify({ view, selectedOther }));
+    } catch {
+      // не критично
+    }
+  }, [view, selectedOther]);
 
   const fetchInbox = async () => {
     if (!user) return;
@@ -116,6 +185,12 @@ export const AdminChatView: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view]);
 
+  // Восстанавливаем список админов, если после F5 оказались на экране выбора собеседника
+  useEffect(() => {
+    if (view === 'newChat') fetchAllAdmins();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const fetchThread = async (otherId: string) => {
     if (!user) return;
     try {
@@ -127,9 +202,11 @@ export const AdminChatView: React.FC = () => {
     }
   };
 
-  const openThread = async (otherId: string, username: string) => {
-    setSelectedOther({ id: otherId, username });
+  const openThread = async (otherId: string, username: string, adminPermissions: AdminTabId[] | null, isMainAdmin?: boolean) => {
+    setSelectedOther({ id: otherId, username, adminPermissions, isMainAdmin });
     setView('thread');
+    setMsgSelectionMode(false);
+    setSelectedMsgIds(new Set());
     await fetchThread(otherId);
 
     if (!user) return;
@@ -147,12 +224,27 @@ export const AdminChatView: React.FC = () => {
     threadPollRef.current = setInterval(() => fetchThread(otherId), 3000);
   };
 
+  // Если после F5 оказались на экране треда — подтягиваем сообщения и
+  // запускаем поллинг заново (без этого messages были бы пустыми).
+  useEffect(() => {
+    if (view !== 'thread' || !selectedOther) return;
+    fetchThread(selectedOther.id);
+    if (threadPollRef.current) clearInterval(threadPollRef.current);
+    threadPollRef.current = setInterval(() => fetchThread(selectedOther.id), 3000);
+    return () => {
+      if (threadPollRef.current) clearInterval(threadPollRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const closeThread = () => {
     if (threadPollRef.current) clearInterval(threadPollRef.current);
     setSelectedOther(null);
     setMessages([]);
     setRevealedId(null);
     setEditingId(null);
+    setMsgSelectionMode(false);
+    setSelectedMsgIds(new Set());
     setView('list');
   };
 
@@ -349,18 +441,176 @@ export const AdminChatView: React.FC = () => {
     }
   };
 
+  // ---------- Массовый выбор диалогов ----------
+
+  const clearLongPressTimer = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
+
+  const handleThreadPointerDown = (otherId: string) => {
+    if (listSelectionMode) return;
+    longPressFiredRef.current = false;
+    longPressTimerRef.current = setTimeout(() => {
+      longPressFiredRef.current = true;
+      setListSelectionMode(true);
+      setSelectedThreadIds(new Set([otherId]));
+    }, LONG_PRESS_MS);
+  };
+
+  const handleThreadClick = (item: InboxItem) => {
+    if (longPressFiredRef.current) {
+      longPressFiredRef.current = false;
+      return;
+    }
+    if (listSelectionMode) {
+      setSelectedThreadIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(item.otherId)) next.delete(item.otherId);
+        else next.add(item.otherId);
+        return next;
+      });
+      return;
+    }
+    openThread(item.otherId, item.username, item.adminPermissions, item.isMainAdmin);
+  };
+
+  const exitListSelectionMode = () => {
+    setListSelectionMode(false);
+    setSelectedThreadIds(new Set());
+  };
+
+  const handleToggleSelectAllThreads = () => {
+    const allSelected = inbox.length > 0 && inbox.every((i) => selectedThreadIds.has(i.otherId));
+    if (allSelected) {
+      setSelectedThreadIds(new Set());
+    } else {
+      setSelectedThreadIds(new Set(inbox.map((i) => i.otherId)));
+    }
+  };
+
+  const handleBulkDeleteThreads = async () => {
+    if (!user || selectedThreadIds.size === 0) return;
+    if (!confirm(`Удалить выбранные переписки (${selectedThreadIds.size})? Они пропадут только у вас.`)) return;
+
+    for (const otherId of selectedThreadIds) {
+      try {
+        await fetch(`${API_URL}/api/admin-chat/thread/${user.id}/${otherId}`, { method: 'DELETE' });
+      } catch (err) {
+        console.error(err);
+      }
+    }
+    exitListSelectionMode();
+    fetchInbox();
+  };
+
+  // ---------- Массовый выбор сообщений внутри треда ----------
+
+  const handleMsgPointerDown = (id: number) => {
+    if (msgSelectionMode) return;
+    longPressFiredRef.current = false;
+    longPressTimerRef.current = setTimeout(() => {
+      longPressFiredRef.current = true;
+      setMsgSelectionMode(true);
+      setSelectedMsgIds(new Set([id]));
+      setRevealedId(null);
+    }, LONG_PRESS_MS);
+  };
+
+  const handleMsgClick = (m: AdminMessage) => {
+    if (longPressFiredRef.current) {
+      longPressFiredRef.current = false;
+      return;
+    }
+    if (msgSelectionMode) {
+      setSelectedMsgIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(m.id)) next.delete(m.id);
+        else next.add(m.id);
+        return next;
+      });
+      return;
+    }
+    setRevealedId(revealedId === m.id ? null : m.id);
+  };
+
+  const exitMsgSelectionMode = () => {
+    setMsgSelectionMode(false);
+    setSelectedMsgIds(new Set());
+  };
+
+  const handleToggleSelectAllMsgs = () => {
+    const allSelected = messages.length > 0 && messages.every((m) => selectedMsgIds.has(m.id));
+    if (allSelected) {
+      setSelectedMsgIds(new Set());
+    } else {
+      setSelectedMsgIds(new Set(messages.map((m) => m.id)));
+    }
+  };
+
+  // Своё сообщение — удаляется у всех; чужое — только скрывается у себя.
+  // Логика идентична одиночному handleDeleteOrHide, применяется массово
+  // с одним общим подтверждением вместо запроса на каждое сообщение.
+  const handleBulkDeleteMessages = async () => {
+    if (!user || !selectedOther || selectedMsgIds.size === 0) return;
+    if (!confirm(`Удалить/скрыть выбранные сообщения (${selectedMsgIds.size})?`)) return;
+
+    const toProcess = messages.filter((m) => selectedMsgIds.has(m.id));
+
+    for (const m of toProcess) {
+      const isMine = m.sender_id === user.id;
+      try {
+        if (isMine) {
+          await fetch(`${API_URL}/api/admin-chat/message/${m.id}`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: user.id }),
+          });
+        } else {
+          await fetch(`${API_URL}/api/admin-chat/hide/${m.id}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ viewerId: user.id }),
+          });
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    exitMsgSelectionMode();
+    fetchThread(selectedOther.id);
+  };
+
   // ---- Экран списка диалогов ----
   if (view === 'list') {
     return (
       <div className="w-full max-w-xl mx-auto bg-slate-950 rounded-2xl p-5">
         <div className="flex items-center justify-between mb-4">
-          <span className="text-sm font-medium text-indigo-400">Переписка с админами</span>
-          <button
-            onClick={openNewChat}
-            className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium rounded-lg px-3 py-1.5 transition-colors"
-          >
-            + Написать
-          </button>
+          <span className="text-sm font-medium text-indigo-400">
+            {listSelectionMode ? `Выбрано: ${selectedThreadIds.size}` : 'Переписка с админами'}
+          </span>
+          <div className="flex items-center gap-3">
+            {listSelectionMode ? (
+              <button onClick={exitListSelectionMode} className="text-[11px] font-medium text-slate-400 hover:text-slate-200 transition-colors">
+                ✕ Отмена
+              </button>
+            ) : (
+              <button
+                onClick={openNewChat}
+                className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium rounded-lg px-3 py-1.5 transition-colors"
+              >
+                + Написать
+              </button>
+            )}
+            {inbox.length > 0 && (
+              <button onClick={handleToggleSelectAllThreads} className="text-[11px] font-medium text-indigo-400 hover:text-indigo-300 transition-colors">
+                {inbox.every((i) => selectedThreadIds.has(i.otherId)) ? 'Снять выбор' : 'Выбрать все'}
+              </button>
+            )}
+          </div>
         </div>
 
         {inbox.length === 0 && (
@@ -369,33 +619,70 @@ export const AdminChatView: React.FC = () => {
           </p>
         )}
 
-        <div className="flex flex-col gap-2">
-          {inbox.map((item) => (
-            <div
-              key={item.otherId}
-              onClick={() => openThread(item.otherId, item.username)}
-              className="w-full text-left bg-slate-800 hover:bg-slate-700 rounded-xl p-3 flex items-center justify-between transition-colors cursor-pointer"
-            >
-              <div className="min-w-0 flex-1">
-                <p className="text-slate-100 text-sm font-medium">{item.username}</p>
-                <p className="text-slate-500 text-xs truncate">{item.lastMessage}</p>
+        {!listSelectionMode && inbox.length > 0 && (
+          <p className="text-slate-600 text-[10px] mb-2">Долгое нажатие на чат — режим выбора</p>
+        )}
+
+        <div className="flex flex-col gap-2 mb-3">
+          {inbox.map((item) => {
+            const isSelected = selectedThreadIds.has(item.otherId);
+            return (
+              <div
+                key={item.otherId}
+                onPointerDown={() => handleThreadPointerDown(item.otherId)}
+                onPointerUp={clearLongPressTimer}
+                onPointerLeave={clearLongPressTimer}
+                onPointerCancel={clearLongPressTimer}
+                onClick={() => handleThreadClick(item)}
+                className={`w-full text-left rounded-xl p-3 flex items-center justify-between transition-colors cursor-pointer select-none ${
+                  isSelected ? 'bg-indigo-950/40 ring-2 ring-indigo-500' : 'bg-slate-800 hover:bg-slate-700'
+                }`}
+              >
+                <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                  {listSelectionMode && (
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      readOnly
+                      className="accent-indigo-500 w-4 h-4 shrink-0 pointer-events-none"
+                    />
+                  )}
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5 mb-0.5">
+                      <p className="text-slate-100 text-sm font-medium truncate">{item.username}</p>
+                      <AccessBadge permissions={item.adminPermissions} isMainAdmin={item.isMainAdmin} />
+                    </div>
+                    <p className="text-slate-500 text-xs truncate">{item.lastMessage}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0 ml-2">
+                  {item.unreadCount > 0 && (
+                    <span className="bg-indigo-600 text-white text-xs font-medium rounded-full px-2 py-0.5">
+                      {item.unreadCount}
+                    </span>
+                  )}
+                  {!listSelectionMode && (
+                    <button
+                      onClick={(e) => handleDeleteThreadFromList(item.otherId, item.username, e)}
+                      className="text-red-400 hover:text-red-300 text-sm px-1"
+                    >
+                      🗑
+                    </button>
+                  )}
+                </div>
               </div>
-              <div className="flex items-center gap-2 shrink-0 ml-2">
-                {item.unreadCount > 0 && (
-                  <span className="bg-indigo-600 text-white text-xs font-medium rounded-full px-2 py-0.5">
-                    {item.unreadCount}
-                  </span>
-                )}
-                <button
-                  onClick={(e) => handleDeleteThreadFromList(item.otherId, item.username, e)}
-                  className="text-red-400 hover:text-red-300 text-sm px-1"
-                >
-                  🗑
-                </button>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
+
+        {listSelectionMode && selectedThreadIds.size > 0 && (
+          <button
+            onClick={handleBulkDeleteThreads}
+            className="w-full bg-red-600 hover:bg-red-500 text-white font-medium rounded-lg py-2.5 text-sm transition-colors"
+          >
+            Удалить выбранные ({selectedThreadIds.size})
+          </button>
+        )}
       </div>
     );
   }
@@ -419,10 +706,11 @@ export const AdminChatView: React.FC = () => {
           {allAdmins.map((admin) => (
             <button
               key={admin.id}
-              onClick={() => openThread(admin.id, admin.username)}
-              className="w-full text-left bg-slate-800 hover:bg-slate-700 rounded-xl p-3 text-slate-100 text-sm font-medium transition-colors"
+              onClick={() => openThread(admin.id, admin.username, admin.admin_permissions, admin.is_main_admin)}
+              className="w-full text-left bg-slate-800 hover:bg-slate-700 rounded-xl p-3 flex items-center gap-2 transition-colors"
             >
-              {admin.username}
+              <span className="text-slate-100 text-sm font-medium">{admin.username}</span>
+              <AccessBadge permissions={admin.admin_permissions} isMainAdmin={admin.is_main_admin} />
             </button>
           ))}
         </div>
@@ -443,7 +731,10 @@ export const AdminChatView: React.FC = () => {
     return (
       <div className="w-full max-w-xl mx-auto bg-slate-950 rounded-2xl p-5">
         <div className="flex items-center justify-between mb-4">
-          <span className="text-sm font-medium text-indigo-400">{selectedOther.username}</span>
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-indigo-400">{selectedOther.username}</span>
+            <AccessBadge permissions={selectedOther.adminPermissions} isMainAdmin={selectedOther.isMainAdmin} />
+          </div>
           <div className="flex items-center gap-3">
             <button onClick={handleDeleteThread} className="text-red-400 text-xs hover:text-red-300">
               Удалить чат
@@ -456,7 +747,7 @@ export const AdminChatView: React.FC = () => {
 
         {latestOther && (
           <button
-            onClick={() => openThread(latestOther.otherId, latestOther.username)}
+            onClick={() => openThread(latestOther.otherId, latestOther.username, latestOther.adminPermissions, latestOther.isMainAdmin)}
             className="w-full mb-3 bg-amber-600/20 border border-amber-600/50 rounded-lg py-2.5 px-3 text-left hover:bg-amber-600/30 transition-colors"
           >
             <div className="flex items-center justify-between mb-0.5">
@@ -469,66 +760,110 @@ export const AdminChatView: React.FC = () => {
           </button>
         )}
 
+        {messages.length > 0 && (
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-slate-500 text-[10px]">
+              {msgSelectionMode ? `Выбрано: ${selectedMsgIds.size}` : 'Долгое нажатие на сообщение — выбор'}
+            </p>
+            <div className="flex items-center gap-3">
+              {msgSelectionMode && (
+                <button onClick={exitMsgSelectionMode} className="text-[11px] font-medium text-slate-400 hover:text-slate-200 transition-colors">
+                  ✕ Отмена
+                </button>
+              )}
+              <button onClick={handleToggleSelectAllMsgs} className="text-[11px] font-medium text-indigo-400 hover:text-indigo-300 transition-colors">
+                {messages.every((m) => selectedMsgIds.has(m.id)) ? 'Снять выбор' : 'Выбрать все'}
+              </button>
+            </div>
+          </div>
+        )}
+
         <div className="flex flex-col gap-2 max-h-96 overflow-y-auto mb-3">
           {messages.length === 0 && (
             <p className="text-slate-600 text-xs text-center py-6">Пока сообщений нет</p>
           )}
           {messages.map((m) => {
             const isMine = m.sender_id === user.id;
+            const isSelected = selectedMsgIds.has(m.id);
             return (
               <div
                 key={m.id}
-                onClick={() => setRevealedId(revealedId === m.id ? null : m.id)}
-                className={`max-w-[80%] rounded-lg px-3 py-2 text-sm relative cursor-pointer ${
+                onPointerDown={() => handleMsgPointerDown(m.id)}
+                onPointerUp={clearLongPressTimer}
+                onPointerLeave={clearLongPressTimer}
+                onPointerCancel={clearLongPressTimer}
+                onClick={() => handleMsgClick(m)}
+                className={`max-w-[80%] rounded-lg px-3 py-2 text-sm relative cursor-pointer select-none flex items-start gap-2 ${
                   isMine ? 'bg-indigo-600 text-white self-end' : 'bg-slate-800 text-slate-200 self-start'
-                }`}
+                } ${isSelected ? 'ring-2 ring-amber-400' : ''}`}
               >
-                {m.attachment_type === 'image' && (
-                  <img src={m.attachment_data!} alt="вложение" className="rounded-lg max-w-full mb-1" />
+                {msgSelectionMode && (
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    readOnly
+                    className="accent-amber-400 w-3.5 h-3.5 shrink-0 mt-0.5 pointer-events-none"
+                  />
                 )}
-                {m.attachment_type === 'video' && (
-                  <video src={m.attachment_data!} controls className="rounded-lg max-w-full mb-1" />
-                )}
-                {m.attachment_type === 'audio' && (
-                  <audio src={m.attachment_data!} controls className="max-w-full mb-1" />
-                )}
+                <div className="min-w-0 flex-1">
+                  {m.attachment_type === 'image' && (
+                    <img src={m.attachment_data!} alt="вложение" className="rounded-lg max-w-full mb-1" />
+                  )}
+                  {m.attachment_type === 'video' && (
+                    <video src={m.attachment_data!} controls className="rounded-lg max-w-full mb-1" />
+                  )}
+                  {m.attachment_type === 'audio' && (
+                    <audio src={m.attachment_data!} controls className="max-w-full mb-1" />
+                  )}
 
-                {editingId === m.id ? (
-                  <div className="flex gap-1.5 mt-1" onClick={(e) => e.stopPropagation()}>
-                    <input
-                      type="text"
-                      value={editText}
-                      onChange={(e) => setEditText(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && handleSaveEdit(m.id)}
-                      className="flex-1 bg-slate-900 text-slate-100 text-xs rounded px-2 py-1 outline-none"
-                      autoFocus
-                    />
-                    <button onClick={() => handleSaveEdit(m.id)} className="text-emerald-400 text-xs">✓</button>
-                    <button onClick={() => setEditingId(null)} className="text-slate-400 text-xs">✕</button>
-                  </div>
-                ) : (
-                  m.message && <span>{renderMessageText(m.message)}</span>
-                )}
+                  {editingId === m.id ? (
+                    <div className="flex gap-1.5 mt-1" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="text"
+                        value={editText}
+                        onChange={(e) => setEditText(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleSaveEdit(m.id)}
+                        className="flex-1 bg-slate-900 text-slate-100 text-xs rounded px-2 py-1 outline-none"
+                        autoFocus
+                      />
+                      <button onClick={() => handleSaveEdit(m.id)} className="text-emerald-400 text-xs">✓</button>
+                      <button onClick={() => setEditingId(null)} className="text-slate-400 text-xs">✕</button>
+                    </div>
+                  ) : (
+                    m.message && <span>{renderMessageText(m.message)}</span>
+                  )}
 
-                {revealedId === m.id && editingId !== m.id && (
-                  <div
-                    className="flex gap-2 absolute -top-2 right-1 bg-slate-950 rounded px-1.5 py-0.5"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    {isMine && m.message && !m.attachment_type && (
-                      <button onClick={() => handleStartEdit(m)} className="text-slate-400 hover:text-slate-200 text-xs">
-                        ✎
+                  {revealedId === m.id && editingId !== m.id && !msgSelectionMode && (
+                    <div
+                      className="flex gap-2 absolute -top-2 right-1 bg-slate-950 rounded px-1.5 py-0.5"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {isMine && m.message && !m.attachment_type && (
+                        <button onClick={() => handleStartEdit(m)} className="text-slate-400 hover:text-slate-200 text-xs">
+                          ✎
+                        </button>
+                      )}
+                      <button onClick={() => handleDeleteOrHide(m)} className="text-red-400 hover:text-red-300 text-xs">
+                        🗑
                       </button>
-                    )}
-                    <button onClick={() => handleDeleteOrHide(m)} className="text-red-400 hover:text-red-300 text-xs">
-                      🗑
-                    </button>
-                  </div>
-                )}
+                    </div>
+                  )}
+                </div>
               </div>
             );
           })}
         </div>
+
+        {msgSelectionMode && selectedMsgIds.size > 0 && (
+          <div className="sticky bottom-0 bg-slate-950 border-t border-slate-800 pt-3 mb-3 -mx-5 px-5">
+            <button
+              onClick={handleBulkDeleteMessages}
+              className="w-full bg-red-600 hover:bg-red-500 text-white font-medium rounded-lg py-2.5 text-sm transition-colors"
+            >
+              Удалить/скрыть выбранные ({selectedMsgIds.size})
+            </button>
+          </div>
+        )}
 
         {showEmoji && (
           <div className="flex flex-wrap gap-1.5 mb-2 bg-slate-800 rounded-lg p-2">

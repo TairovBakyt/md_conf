@@ -45,13 +45,25 @@ export const Prizes: React.FC = () => {
       navigate('/auth');
       return;
     }
-    loadData();
+    loadData(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const loadData = async () => {
+  // Тихий фоновый поллинг — держит баланс, список полученных призов и
+  // остатки в магазине актуальными, если админ что-то поменял в другом
+  // месте (например, вернул приз через "Возврат" на стойке призов) пока
+  // участник смотрит этот экран. Ошибка/loading при этом не трогаются —
+  // только первая загрузка (isInitial=true) имеет право показать заглушку.
+  useEffect(() => {
     if (!user) return;
-    setLoading(true);
+    const interval = setInterval(() => loadData(false), 5000);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
+
+  const loadData = async (isInitial: boolean) => {
+    if (!user) return;
+    if (isInitial) setLoading(true);
     try {
       const [prizesRes, userRes] = await Promise.all([
         fetch(`${API_URL}/api/prizes`),
@@ -61,19 +73,19 @@ export const Prizes: React.FC = () => {
       const userData = await userRes.json();
 
       if (!prizesRes.ok || !userRes.ok) {
-        setErrorMsg('Не удалось загрузить магазин');
-        setLoading(false);
+        if (isInitial) setErrorMsg('Не удалось загрузить магазин');
         return;
       }
 
       setPrizes(prizesData);
       setBalance(userData.total_score);
       setRedeemedPrizes(userData.redeemed_prizes || []);
+      if (isInitial) setErrorMsg('');
     } catch (err) {
       console.error(err);
-      setErrorMsg('Сервер недоступен');
+      if (isInitial) setErrorMsg('Сервер недоступен');
     } finally {
-      setLoading(false);
+      if (isInitial) setLoading(false);
     }
   };
 

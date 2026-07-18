@@ -16,31 +16,19 @@ import { ChatInbox } from '../components/admin/ChatInbox';
 import { AdminChatView } from '../components/admin/AdminChatView';
 import { AdminRecoveryView } from '../components/admin/AdminRecoveryView';
 import { API_URL } from '../config';
+import { ADMIN_TAB_DEFS, isTabAllowed, getAccessLabel, type AdminTabId } from '../adminTabs';
 
-type AdminTab =
-  | 'scan'
-  | 'prizeBooth'
-  | 'redemptions'
-  | 'achievements'
-  | 'games'
-  | 'admins'
-  | 'docs'
-  | 'chat'
-  | 'adminChat'
-  | 'recovery';
+const TAB_STORAGE_KEY = 'admin_active_tab';
 
-const TABS: { id: AdminTab; label: string; icon: string }[] = [
-  { id: 'scan', label: 'Сканирование', icon: '📷' },
-  { id: 'prizeBooth', label: 'Стойка призов', icon: '🎟️' },
-  { id: 'redemptions', label: 'История выдач', icon: '🎁' },
-  { id: 'achievements', label: 'Достижения', icon: '🏆' },
-  { id: 'games', label: 'Игры', icon: '🎮' },
-  { id: 'admins', label: 'Администраторы', icon: '👥' },
-  { id: 'docs', label: 'Документация', icon: '📖' },
-  { id: 'chat', label: 'Сообщения', icon: '💬' },
-  { id: 'adminChat', label: 'Чат админов', icon: '🗨️' },
-  { id: 'recovery', label: 'Восстановление доступа', icon: '🔑' },
-];
+function loadPersistedTab(): AdminTabId | null {
+  try {
+    const raw = sessionStorage.getItem(TAB_STORAGE_KEY);
+    if (raw && ADMIN_TAB_DEFS.some((t) => t.id === raw)) return raw as AdminTabId;
+  } catch {
+    // sessionStorage может быть недоступен (приватный режим и т.п.) — не критично
+  }
+  return null;
+}
 
 function getGreeting(): string {
   const hour = new Date().getHours();
@@ -50,11 +38,28 @@ function getGreeting(): string {
   return 'Добрый вечер';
 }
 
+function permissionsEqual(a: AdminTabId[] | null | undefined, b: AdminTabId[] | null | undefined): boolean {
+  const normA = a ?? null;
+  const normB = b ?? null;
+  if (normA === null && normB === null) return true;
+  if (normA === null || normB === null) return false;
+  if (normA.length !== normB.length) return false;
+  const setB = new Set(normB);
+  return normA.every((id) => setB.has(id));
+}
+
 export const AdminPanel: React.FC = () => {
-  const { user, logout } = useUser();
+  const { user, setUser, logout } = useUser();
   const navigate = useNavigate();
 
-  const [tab, setTab] = useState<AdminTab>('scan');
+  const permissions = user?.admin_permissions ?? null;
+
+  const [tab, setTab] = useState<AdminTabId>(() => {
+    const persisted = loadPersistedTab();
+    if (persisted && isTabAllowed(permissions, persisted)) return persisted;
+    const firstAllowed = ADMIN_TAB_DEFS.find((t) => isTabAllowed(permissions, t.id));
+    return firstAllowed?.id ?? 'scan';
+  });
   const [chatUnread, setChatUnread] = useState(0);
   const [adminChatUnread, setAdminChatUnread] = useState(0);
 
@@ -69,6 +74,53 @@ export const AdminPanel: React.FC = () => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(TAB_STORAGE_KEY, tab);
+    } catch {
+      // не критично, просто не сохранится между обновлениями
+    }
+  }, [tab]);
+
+  // Тихий фоновый поллинг собственного статуса — ловит три случая
+  // изменения прав "вживую", пока админ сидит в панели, без ручной
+  // перезагрузки: (1) права полностью забрали — выгоняем на /dashboard,
+  // (2) полный доступ сузили до частичного или (3) наоборот расширили —
+  // обновляем локальные permissions; если текущая открытая вкладка
+  // перестала быть разрешена, переключаемся на первую доступную.
+  useEffect(() => {
+    if (!user) return;
+
+    const checkOwnStatus = async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/user/${user.id}`);
+        const data = await res.json();
+        if (!res.ok) return;
+
+        if (!data.is_admin) {
+          setUser({ ...user, is_admin: false, admin_permissions: null });
+          navigate('/dashboard');
+          return;
+        }
+
+        const newPermissions: AdminTabId[] | null = data.admin_permissions ?? null;
+        if (!permissionsEqual(user.admin_permissions ?? null, newPermissions)) {
+          setUser({ ...user, admin_permissions: newPermissions });
+          if (!isTabAllowed(newPermissions, tab)) {
+            const firstAllowed = ADMIN_TAB_DEFS.find((t) => isTabAllowed(newPermissions, t.id));
+            setTab(firstAllowed?.id ?? 'scan');
+          }
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    };
+
+    const interval = setInterval(checkOwnStatus, 5000);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, tab]);
 
   // Тихий фоновый поллинг непрочитанных — считает сумму unreadCount
   // по обоим чатам и показывает цифрой на кнопках вкладок.
@@ -106,10 +158,15 @@ export const AdminPanel: React.FC = () => {
     navigate('/auth');
   };
 
-  const unreadForTab = (tabId: AdminTab): number => {
+  const unreadForTab = (tabId: AdminTabId): number => {
     if (tabId === 'chat') return chatUnread;
     if (tabId === 'adminChat') return adminChatUnread;
     return 0;
+  };
+
+  const handleTabClick = (tabId: AdminTabId) => {
+    if (!isTabAllowed(permissions, tabId)) return;
+    setTab(tabId);
   };
 
   return (
@@ -127,6 +184,19 @@ export const AdminPanel: React.FC = () => {
           {user && (
             <span className="text-base font-semibold text-transparent bg-clip-text bg-gradient-to-r from-amber-300 via-pink-400 to-fuchsia-400 flex items-center gap-1.5">
               {getGreeting()}, {user.username}! <span className="text-lg">👋</span>
+            </span>
+          )}
+          {user && (
+            <span
+              className={`text-[10px] font-medium w-fit px-2 py-0.5 rounded-full ${
+                user.is_main_admin
+                  ? 'bg-purple-950/60 text-purple-300 border border-purple-500/30'
+                  : permissions === null
+                  ? 'bg-emerald-950/60 text-emerald-400 border border-emerald-500/30'
+                  : 'bg-amber-950/60 text-amber-400 border border-amber-500/30'
+              }`}
+            >
+              {user.is_main_admin ? '👑 Главный администратор' : getAccessLabel(permissions)}
             </span>
           )}
         </div>
@@ -156,24 +226,36 @@ export const AdminPanel: React.FC = () => {
         transition={{ duration: 0.4, delay: 0.1 }}
         className="w-full max-w-md xl:max-w-6xl grid grid-cols-3 xl:grid-cols-5 gap-2 mb-5"
       >
-        {TABS.map((t) => {
+        {ADMIN_TAB_DEFS.map((t, i) => {
           const unread = unreadForTab(t.id);
+          const locked = !isTabAllowed(permissions, t.id);
+          // На телефоне (grid-cols-3) последняя вкладка при нечётном остатке
+          // (10 вкладок ÷ 3 = 1 в остатке) виснет одна в своём ряду на треть
+          // ширины — растягиваем её на всю строку только в этом случае.
+          // На десктопе (xl:grid-cols-5, остаток 0) это правило не действует.
+          const isDanglingLast = i === ADMIN_TAB_DEFS.length - 1 && ADMIN_TAB_DEFS.length % 3 === 1;
           return (
             <button
               key={t.id}
-              onClick={() => setTab(t.id)}
+              onClick={() => handleTabClick(t.id)}
+              disabled={locked}
+              title={locked ? 'Нет доступа к этой вкладке' : undefined}
               className={`relative flex flex-col items-center gap-1 text-xs font-medium rounded-xl py-3 transition-all outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 ${
-                tab === t.id
+                isDanglingLast ? 'col-span-3 xl:col-span-1' : ''
+              } ${
+                locked
+                  ? 'bg-slate-900/60 text-slate-600 cursor-not-allowed opacity-50'
+                  : tab === t.id
                   ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30 scale-[1.02]'
                   : 'bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-slate-200'
               }`}
             >
-              {unread > 0 && (
+              {!locked && unread > 0 && (
                 <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[10px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1 shadow-md">
                   {unread > 99 ? '99+' : unread}
                 </span>
               )}
-              <span className="text-base">{t.icon}</span>
+              <span className="text-base">{locked ? '🔒' : t.icon}</span>
               <span>{t.label}</span>
             </button>
           );
@@ -228,5 +310,3 @@ export const AdminPanel: React.FC = () => {
 };
 
 export default AdminPanel;
-
-

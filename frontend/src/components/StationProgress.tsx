@@ -24,11 +24,20 @@ interface StationStatus {
   unlocked: boolean;
 }
 
+interface GameUnlockState {
+  quiz_unlocked: boolean;
+  filword_unlocked: boolean;
+}
+
 export const StationProgress: React.FC<StationProgressProps> = ({ userId, isQuizPassed }) => {
   const [filwordPassed, setFilwordPassed] = useState(false);
   const [manualStations, setManualStations] = useState<StationStatus[]>([]);
   const [quizPoints, setQuizPoints] = useState(0);
   const [filwordPoints, setFilwordPoints] = useState(0);
+  const [gameUnlocked, setGameUnlocked] = useState<GameUnlockState>({
+    quiz_unlocked: false,
+    filword_unlocked: false,
+  });
 
   useEffect(() => {
     const fetchFilwordStatus = async () => {
@@ -55,14 +64,37 @@ export const StationProgress: React.FC<StationProgressProps> = ({ userId, isQuiz
       }
     };
 
+    // Нужно, чтобы показывать "Закрыта" для викторины/филворда, если они
+    // ещё не пройдены и сейчас не открыты админом — иначе непройденная
+    // игра выглядит одинаково независимо от её реального статуса.
+    const fetchGameSettings = async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/settings`);
+        const data = await res.json();
+        if (res.ok) {
+          setGameUnlocked({
+            quiz_unlocked: !!data.quiz_unlocked,
+            filword_unlocked: !!data.filword_unlocked,
+          });
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    };
+
     fetchFilwordStatus();
     fetchManualStations();
+    fetchGameSettings();
     const interval = setInterval(() => {
       fetchFilwordStatus();
       fetchManualStations();
+      fetchGameSettings();
     }, 5000);
     return () => clearInterval(interval);
   }, [userId]);
+
+  const quizLocked = !isQuizPassed && !gameUnlocked.quiz_unlocked;
+  const filwordLocked = !filwordPassed && !gameUnlocked.filword_unlocked;
 
   return (
     <div className="bg-slate-950 border border-slate-800 rounded-xl p-4">
@@ -73,29 +105,33 @@ export const StationProgress: React.FC<StationProgressProps> = ({ userId, isQuiz
       <div className="flex flex-col gap-2">
         <div className="flex items-center gap-2.5 bg-slate-900 rounded-lg p-2.5">
           <span className={`text-sm ${isQuizPassed ? 'text-emerald-400' : 'text-slate-600'}`}>
-            {isQuizPassed ? '✅' : '⬜'}
+            {isQuizPassed ? '✅' : quizLocked ? '🔒' : '⬜'}
           </span>
           <div className="min-w-0">
             <p className={`text-xs truncate ${isQuizPassed ? 'text-slate-200' : 'text-slate-500'}`}>
               2. Hardcore QA
             </p>
-            {isQuizPassed && (
+            {isQuizPassed ? (
               <p className="text-[10px] text-emerald-500/80">Пройдена · +{quizPoints} баллов</p>
-            )}
+            ) : quizLocked ? (
+              <p className="text-[10px] text-slate-600">Закрыта</p>
+            ) : null}
           </div>
         </div>
 
         <div className="flex items-center gap-2.5 bg-slate-900 rounded-lg p-2.5">
           <span className={`text-sm ${filwordPassed ? 'text-emerald-400' : 'text-slate-600'}`}>
-            {filwordPassed ? '✅' : '⬜'}
+            {filwordPassed ? '✅' : filwordLocked ? '🔒' : '⬜'}
           </span>
           <div className="min-w-0">
             <p className={`text-xs truncate ${filwordPassed ? 'text-slate-200' : 'text-slate-500'}`}>
               4. Word Researcher
             </p>
-            {filwordPassed && (
+            {filwordPassed ? (
               <p className="text-[10px] text-emerald-500/80">Пройдена · +{filwordPoints} баллов</p>
-            )}
+            ) : filwordLocked ? (
+              <p className="text-[10px] text-slate-600">Закрыта</p>
+            ) : null}
           </div>
         </div>
 

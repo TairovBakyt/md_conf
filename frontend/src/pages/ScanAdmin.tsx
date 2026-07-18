@@ -186,7 +186,7 @@ export const ScanAdmin: React.FC = () => {
         <div className="w-full max-w-sm bg-slate-950 rounded-2xl p-5 text-center">
           <span className="text-3xl block mb-3">👋</span>
           <h1 className="text-slate-100 text-lg font-semibold mb-1">Добро пожаловать!</h1>
-          <p className="text-slate-400 text-sm mb-5">Как вас зовут?</p>
+          <p className="text-slate-400 text-sm mb-5">Напишите ваш ник</p>
           <form onSubmit={handleRegisterAndConnect} className="flex flex-col gap-3">
             <input
               type="text"

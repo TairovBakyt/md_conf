@@ -16,27 +16,46 @@ interface LeaderboardEntry {
 export const StatsPanel: React.FC = () => {
   const [stats, setStats] = useState<Stats | null>(null);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
+  const [sosCount, setSosCount] = useState(0);
+  const [clearingSos, setClearingSos] = useState(false);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [statsRes, leaderboardRes] = await Promise.all([
+        const [statsRes, leaderboardRes, sosRes] = await Promise.all([
           fetch(`${API_URL}/api/admin/stats`),
           fetch(`${API_URL}/api/admin/leaderboard`),
+          fetch(`${API_URL}/api/admin/sos-count`),
         ]);
         const statsData = await statsRes.json();
         const leaderboardData = await leaderboardRes.json();
+        const sosData = await sosRes.json();
         if (statsRes.ok) setStats(statsData);
         if (leaderboardRes.ok) setLeaderboard(leaderboardData);
+        if (sosRes.ok) setSosCount(sosData.count ?? 0);
       } catch (err) {
         console.error(err);
       }
     };
 
     fetchData();
-    const interval = setInterval(fetchData, 12000);
+    // SOS проверяем чаще остального (5 сек), чтобы админ увидел сигнал
+    // о помощи максимально быстро, не дожидаясь общего 12-секундного цикла.
+    const interval = setInterval(fetchData, 5000);
     return () => clearInterval(interval);
   }, []);
+
+  const handleClearSos = async () => {
+    setClearingSos(true);
+    try {
+      const res = await fetch(`${API_URL}/api/admin/sos-clear`, { method: 'POST' });
+      if (res.ok) setSosCount(0);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setClearingSos(false);
+    }
+  };
 
   const maxScore = Math.max(...leaderboard.map((e) => e.score), 1);
 
@@ -45,6 +64,26 @@ export const StatsPanel: React.FC = () => {
       <p className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-3">
         Быстрая статистика + Топ-5
       </p>
+
+      {sosCount > 0 && (
+        <div className="bg-red-950/60 border border-red-500/40 rounded-lg p-3 mb-4 animate-pulse">
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <span className="text-red-300 text-sm font-semibold">
+              📢 SOS: {sosCount} {sosCount === 1 ? 'сигнал' : 'сигнала(ов)'}
+            </span>
+          </div>
+          <p className="text-red-300/80 text-xs mb-2">
+            Кто-то у стойки регистрации не может войти — подойдите помочь со сбросом PIN.
+          </p>
+          <button
+            onClick={handleClearSos}
+            disabled={clearingSos}
+            className="w-full bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white text-xs font-medium rounded-lg py-2 transition-colors"
+          >
+            {clearingSos ? 'Сбрасываем...' : 'Отметить как решено'}
+          </button>
+        </div>
+      )}
 
       <div className="bg-slate-900 rounded-lg p-3 mb-4">
         <p className="text-slate-100 text-lg font-semibold">

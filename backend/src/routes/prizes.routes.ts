@@ -13,6 +13,28 @@ router.get('/', async (req: Request, res: Response) => {
   }
 });
 
+// История уже полученных призов конкретного участника — используется
+// на стойке выдачи призов (PrizeBoothView), чтобы админ видел не только
+// доступные для обмена призы, но и то, что участник уже получил ранее.
+router.get('/history/:userId', async (req: Request, res: Response) => {
+  const { userId } = req.params;
+
+  try {
+    const result = await pool.query(
+      `SELECT pr.id, pr.redeemed_at, p.title, p.tier, p.cost
+       FROM prize_redemptions pr
+       JOIN prizes p ON pr.prize_id = p.id
+       WHERE pr.user_id = $1
+       ORDER BY pr.redeemed_at DESC`,
+      [userId]
+    );
+    return res.json(result.rows);
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Ошибка получения истории призов' });
+  }
+});
+
 router.post('/redeem', async (req: Request, res: Response) => {
   const { userId, prizeId } = req.body;
 
@@ -56,6 +78,46 @@ router.post('/redeem', async (req: Request, res: Response) => {
   } catch (error) {
     console.error(error);
     return res.status(500).json({ error: 'Ошибка обмена приза' });
+  }
+});
+
+// Возврат выданного приза — на случай, если участник хочет обменять на
+// другой приз или выдача была ошибкой. Баллы возвращаются на баланс,
+// запись о выдаче удаляется (это автоматически освобождает место в
+// ограниченном stock, так как остаток считается по количеству строк
+// в prize_redemptions).
+router.delete('/redemption/:id', async (req: Request, res: Response) => {
+  const { id } = req.params;
+
+  try {
+    const redemptionResult = await pool.query(
+      `SELECT pr.user_id, pr.prize_id, p.cost, p.title
+       FROM prize_redemptions pr
+       JOIN prizes p ON pr.prize_id = p.id
+       WHERE pr.id = $1`,
+      [id]
+    );
+
+    if (redemptionResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Запись о выдаче не найдена' });
+    }
+
+    const { user_id, cost, title } = redemptionResult.rows[0];
+
+    await pool.query('UPDATE users SET total_score = total_score + $1 WHERE id = $2', [cost, user_id]);
+    await pool.query('DELETE FROM prize_redemptions WHERE id = $1', [id]);
+
+    const newBalanceResult = await pool.query('SELECT total_score FROM users WHERE id = $1', [user_id]);
+
+    return res.json({
+      success: true,
+      prizeTitle: title,
+      refundedPoints: cost,
+      newBalance: newBalanceResult.rows[0]?.total_score ?? null,
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Ошибка возврата приза' });
   }
 });
 

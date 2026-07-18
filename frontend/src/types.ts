@@ -1,3 +1,5 @@
+import type { AdminTabId } from './adminTabs';
+
 // Описываем пользователя
 export interface User {
   id: string;            // Уникальный ID (генерируется при регистрации)
@@ -7,7 +9,11 @@ export interface User {
   is_quiz_passed:boolean;
   is_filword_passed: boolean;
   is_admin:boolean;
+  is_main_admin?: boolean;
   session_version?: number;
+  // null/отсутствует = полный доступ ко всем вкладкам админки.
+  // Массив id вкладок (см. adminTabs.ts) = частичный доступ.
+  admin_permissions?: AdminTabId[] | null;
 }
 
 // Описываем достижение (историю баллов)

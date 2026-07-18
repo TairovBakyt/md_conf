@@ -5,6 +5,7 @@ import { useUser } from '../../authorization/UserContext';
 import { API_URL } from '../../config';
 
 const SCANNER_ELEMENT_ID = 'prize-qr-reader';
+const LONG_PRESS_MS = 550;
 
 const MANUAL_STATION_TITLES: Record<number, string> = {
   1: 'Подписка на соцсети',
@@ -40,6 +41,14 @@ interface Prize {
   description: string | null;
 }
 
+interface RedeemedPrize {
+  id: number;
+  title: string;
+  tier: 'low' | 'middle' | 'high';
+  cost: number;
+  redeemed_at: string;
+}
+
 const TIER_LABELS: Record<string, string> = {
   low: 'Low-уровень',
   middle: 'Middle-уровень',
@@ -48,27 +57,96 @@ const TIER_LABELS: Record<string, string> = {
 
 const TIER_ORDER = ['low', 'middle', 'high'];
 
+// Состояние экрана — переживает F5, чтобы админ не терял найденного
+// участника. Транзитное "redeeming" откатывается к "found".
+const PRIZEBOOTH_STORAGE_KEY = 'admin_prizebooth_state';
+
+interface PersistedPrizeBoothState {
+  mode: Mode;
+  profile: ParticipantProfile | null;
+  stations: StationStatus[];
+  prizes: Prize[];
+  redeemedPrizes: RedeemedPrize[];
+  quizPoints: number;
+  filwordPoints: number;
+  errorMsg: string;
+  successMsg: string;
+}
+
+function loadPersistedPrizeBoothState(): PersistedPrizeBoothState | null {
+  try {
+    const raw = sessionStorage.getItem(PRIZEBOOTH_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as PersistedPrizeBoothState;
+    if (parsed.mode === 'redeeming') {
+      parsed.mode = parsed.profile ? 'found' : 'scanning';
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
 export const PrizeBoothView: React.FC = () => {
+  const [persistedPrizeBooth] = useState(loadPersistedPrizeBoothState);
   const { user } = useUser();
 
-  const [mode, setMode] = useState<Mode>('scanning');
-  const [profile, setProfile] = useState<ParticipantProfile | null>(null);
-  const [stations, setStations] = useState<StationStatus[]>([]);
-  const [prizes, setPrizes] = useState<Prize[]>([]);
-  const [errorMsg, setErrorMsg] = useState('');
-  const [successMsg, setSuccessMsg] = useState('');
+  const [mode, setMode] = useState<Mode>(persistedPrizeBooth?.mode ?? 'scanning');
+  const [profile, setProfile] = useState<ParticipantProfile | null>(persistedPrizeBooth?.profile ?? null);
+  const [stations, setStations] = useState<StationStatus[]>(persistedPrizeBooth?.stations ?? []);
+  const [prizes, setPrizes] = useState<Prize[]>(persistedPrizeBooth?.prizes ?? []);
+  const [redeemedPrizes, setRedeemedPrizes] = useState<RedeemedPrize[]>(persistedPrizeBooth?.redeemedPrizes ?? []);
+  const [errorMsg, setErrorMsg] = useState(persistedPrizeBooth?.errorMsg ?? '');
+  const [successMsg, setSuccessMsg] = useState(persistedPrizeBooth?.successMsg ?? '');
   const [showManualInput, setShowManualInput] = useState(false);
   const [manualId, setManualId] = useState('');
   const [showMyQr, setShowMyQr] = useState(false);
   const [cameraStarted, setCameraStarted] = useState(false);
   const [cameraError, setCameraError] = useState('');
   const [redeemingPrizeId, setRedeemingPrizeId] = useState<number | null>(null);
-  const [quizPoints, setQuizPoints] = useState(0);
-  const [filwordPoints, setFilwordPoints] = useState(0);
+  const [refundingId, setRefundingId] = useState<number | null>(null);
+  const [quizPoints, setQuizPoints] = useState(persistedPrizeBooth?.quizPoints ?? 0);
+  const [filwordPoints, setFilwordPoints] = useState(persistedPrizeBooth?.filwordPoints ?? 0);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedPrizeIds, setSelectedPrizeIds] = useState<Set<number>>(new Set());
+  const [bulkRedeeming, setBulkRedeeming] = useState(false);
 
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const isProcessingRef = useRef(false);
   const incomingPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressFiredRef = useRef(false);
+
+  useEffect(() => {
+    const toSave: PersistedPrizeBoothState = {
+      mode,
+      profile,
+      stations,
+      prizes,
+      redeemedPrizes,
+      quizPoints,
+      filwordPoints,
+      errorMsg,
+      successMsg,
+    };
+    try {
+      sessionStorage.setItem(PRIZEBOOTH_STORAGE_KEY, JSON.stringify(toSave));
+    } catch {
+      // не критично
+    }
+  }, [mode, profile, stations, prizes, redeemedPrizes, quizPoints, filwordPoints, errorMsg, successMsg]);
+
+  // Тихий фоновый поллинг — участник может сам купить приз через /prizes,
+  // пока админ смотрит его профиль здесь. Обновляем баланс/призы каждые
+  // 5 сек, не трогая mode/loading, чтобы не сбрасывать текущий экран.
+  useEffect(() => {
+    if (mode !== 'found' || !profile) return;
+    const interval = setInterval(() => {
+      refetchProfileAndHistory(profile.id);
+    }, 5000);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, profile?.id]);
 
   useEffect(() => {
     if (mode !== 'scanning' || !cameraStarted) return;
@@ -121,6 +199,25 @@ export const PrizeBoothView: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, user]);
 
+  const refetchProfileAndHistory = async (userId: string) => {
+    try {
+      const [userRes, prizesRes, historyRes] = await Promise.all([
+        fetch(`${API_URL}/api/user/${userId}`),
+        fetch(`${API_URL}/api/prizes`),
+        fetch(`${API_URL}/api/prizes/history/${userId}`),
+      ]);
+      const userData = await userRes.json();
+      const prizesData = await prizesRes.json();
+      const historyData = await historyRes.json();
+
+      if (userRes.ok) setProfile(userData);
+      if (prizesRes.ok) setPrizes(prizesData);
+      if (historyRes.ok) setRedeemedPrizes(historyData);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   const handleScanSuccess = async (scannedUserId: string) => {
     if (isProcessingRef.current) return;
     isProcessingRef.current = true;
@@ -139,14 +236,16 @@ export const PrizeBoothView: React.FC = () => {
     }
 
     try {
-      const [userRes, stationsRes, prizesRes] = await Promise.all([
+      const [userRes, stationsRes, prizesRes, historyRes] = await Promise.all([
         fetch(`${API_URL}/api/user/${scannedUserId}`),
         fetch(`${API_URL}/api/stations/${scannedUserId}`),
         fetch(`${API_URL}/api/prizes`),
+        fetch(`${API_URL}/api/prizes/history/${scannedUserId}`),
       ]);
       const userData = await userRes.json();
       const stationsData = await stationsRes.json();
       const prizesData = await prizesRes.json();
+      const historyData = await historyRes.json();
 
       if (!userRes.ok) {
         setErrorMsg('Участник с таким QR не найден');
@@ -159,6 +258,9 @@ export const PrizeBoothView: React.FC = () => {
       setQuizPoints(stationsRes.ok ? stationsData.quizPoints ?? 0 : 0);
       setFilwordPoints(stationsRes.ok ? stationsData.filwordPoints ?? 0 : 0);
       setPrizes(prizesRes.ok ? prizesData : []);
+      setRedeemedPrizes(historyRes.ok ? historyData : []);
+      setSelectionMode(false);
+      setSelectedPrizeIds(new Set());
       setMode('found');
     } catch (err) {
       console.error(err);
@@ -200,6 +302,10 @@ export const PrizeBoothView: React.FC = () => {
         return;
       }
 
+      // Обновляем баланс, список полученных призов и остатки в магазине,
+      // чтобы экран отражал актуальное состояние без повторного сканирования.
+      await refetchProfileAndHistory(profile.id);
+
       setSuccessMsg(`Выдано «${data.prizeTitle}» участнику ${profile.username}. Остаток баллов: ${data.newBalance}`);
       setMode('success');
     } catch (err) {
@@ -211,11 +317,162 @@ export const PrizeBoothView: React.FC = () => {
     }
   };
 
+  const toggleSelectPrize = (prizeId: number) => {
+    setSelectedPrizeIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(prizeId)) next.delete(prizeId);
+      else next.add(prizeId);
+      return next;
+    });
+  };
+
+  // Долгое нажатие на карточку приза (как в Telegram/Google Фото) включает
+  // режим выбора и сразу отмечает нажатый приз. В обычном режиме короткий
+  // тап/клик по карточке ничего не делает — только кнопка "Выдать" активна.
+  const handlePrizePointerDown = (prize: Prize) => {
+    const outOfStock = prize.stock !== null && prize.stock <= 0;
+    if (outOfStock || selectionMode) return;
+    longPressFiredRef.current = false;
+    longPressTimerRef.current = setTimeout(() => {
+      longPressFiredRef.current = true;
+      setSelectionMode(true);
+      setSelectedPrizeIds(new Set([prize.id]));
+    }, LONG_PRESS_MS);
+  };
+
+  const clearLongPressTimer = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
+
+  const handlePrizeCardClick = (prize: Prize) => {
+    // Если долгое нажатие только что сработало — этот клик его "эхо",
+    // игнорируем, чтобы не снять выбор сразу после включения режима.
+    if (longPressFiredRef.current) {
+      longPressFiredRef.current = false;
+      return;
+    }
+    if (!selectionMode) return;
+    const outOfStock = prize.stock !== null && prize.stock <= 0;
+    if (outOfStock) return;
+    toggleSelectPrize(prize.id);
+  };
+
+  const exitSelectionMode = () => {
+    setSelectionMode(false);
+    setSelectedPrizeIds(new Set());
+  };
+
+  // Доступны для выбора только те призы, которые в принципе можно
+  // выдать прямо сейчас (есть в наличии) — иначе "Выбрать все" отмечало
+  // бы заведомо невыполнимые пункты.
+  const getSelectablePrizes = (): Prize[] => {
+    return prizes.filter((p) => !(p.stock !== null && p.stock <= 0));
+  };
+
+  const handleToggleSelectAll = () => {
+    const selectable = getSelectablePrizes();
+    const allSelected = selectable.length > 0 && selectable.every((p) => selectedPrizeIds.has(p.id));
+    setSelectionMode(true);
+    if (allSelected) {
+      setSelectedPrizeIds(new Set());
+    } else {
+      setSelectedPrizeIds(new Set(selectable.map((p) => p.id)));
+    }
+  };
+
+  const selectedTotalCost = prizes
+    .filter((p) => selectedPrizeIds.has(p.id))
+    .reduce((sum, p) => sum + p.cost, 0);
+
+  const handleBulkRedeem = async () => {
+    if (!profile || selectedPrizeIds.size === 0 || bulkRedeeming) return;
+    const selectedPrizes = prizes.filter((p) => selectedPrizeIds.has(p.id));
+    if (!confirm(`Выдать выбранные призы (${selectedPrizes.length} шт., ${selectedTotalCost} баллов) участнику ${profile.username}?`)) {
+      return;
+    }
+
+    setBulkRedeeming(true);
+    setMode('redeeming');
+
+    const succeeded: string[] = [];
+    const failed: string[] = [];
+
+    // Последовательно, а не параллельно — баланс меняется после каждой
+    // выдачи, и следующая проверка "хватает ли баллов" должна видеть
+    // уже актуальный остаток.
+    for (const prize of selectedPrizes) {
+      try {
+        const res = await fetch(`${API_URL}/api/prizes/redeem`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: profile.id, prizeId: prize.id }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          succeeded.push(data.prizeTitle);
+        } else {
+          failed.push(`${prize.title} (${data.error || 'ошибка'})`);
+        }
+      } catch (err) {
+        console.error(err);
+        failed.push(`${prize.title} (сервер недоступен)`);
+      }
+    }
+
+    await refetchProfileAndHistory(profile.id);
+    exitSelectionMode();
+    setBulkRedeeming(false);
+
+    let message = '';
+    if (succeeded.length > 0) {
+      message += `Выдано: ${succeeded.join(', ')}.`;
+    }
+    if (failed.length > 0) {
+      message += ` Не удалось: ${failed.join(', ')}.`;
+    }
+    setSuccessMsg(message.trim() || 'Готово');
+    setMode('success');
+  };
+
+  const handleRefund = async (redemption: RedeemedPrize) => {
+    if (!profile || refundingId !== null) return;
+    if (!confirm(`Вернуть «${redemption.title}»? Участнику будет возвращено ${redemption.cost} баллов.`)) return;
+
+    setRefundingId(redemption.id);
+
+    try {
+      const res = await fetch(`${API_URL}/api/prizes/redemption/${redemption.id}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        setErrorMsg(data.error || 'Не удалось вернуть приз');
+        setMode('error');
+        return;
+      }
+
+      await refetchProfileAndHistory(profile.id);
+      setSuccessMsg(`Возврат «${data.prizeTitle}» оформлен. Возвращено ${data.refundedPoints} баллов. Баланс: ${data.newBalance}`);
+      setMode('success');
+    } catch (err) {
+      console.error(err);
+      setErrorMsg('Сервер недоступен');
+      setMode('error');
+    } finally {
+      setRefundingId(null);
+    }
+  };
+
   const handleScanNext = () => {
     isProcessingRef.current = false;
     setProfile(null);
     setStations([]);
     setPrizes([]);
+    setRedeemedPrizes([]);
     setQuizPoints(0);
     setFilwordPoints(0);
     setCameraStarted(false);
@@ -225,10 +482,14 @@ export const PrizeBoothView: React.FC = () => {
     setSuccessMsg('');
     setManualId('');
     setCameraError('');
+    setSelectionMode(false);
+    setSelectedPrizeIds(new Set());
     setMode('scanning');
   };
 
   const initials = profile?.username.slice(0, 2).toLowerCase() || '';
+  const selectableCount = getSelectablePrizes().length;
+  const allSelected = selectableCount > 0 && getSelectablePrizes().every((p) => selectedPrizeIds.has(p.id));
 
   return (
     <div className="w-full max-w-xl mx-auto bg-slate-950 rounded-2xl p-5">
@@ -390,7 +651,67 @@ export const PrizeBoothView: React.FC = () => {
             ))}
           </div>
 
-          <p className="text-xs text-slate-400 font-medium uppercase tracking-wider mb-2">Доступные призы</p>
+          {redeemedPrizes.length > 0 && (
+            <>
+              <p className="text-xs text-slate-400 font-medium uppercase tracking-wider mb-2">
+                Уже получено ({redeemedPrizes.length})
+              </p>
+              <div className="flex flex-col gap-1.5 mb-4">
+                {redeemedPrizes.map((rp) => (
+                  <div key={rp.id} className="flex items-center justify-between bg-slate-900 rounded-lg px-3 py-2 gap-2">
+                    <div className="min-w-0 flex-1">
+                      <span className="text-xs text-slate-300 truncate block">{rp.title}</span>
+                      <span className="text-[10px] text-slate-600">
+                        {new Date(rp.redeemed_at).toLocaleString('ru-RU', {
+                          day: '2-digit',
+                          month: '2-digit',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </span>
+                    </div>
+                    <span className="text-emerald-400 text-xs shrink-0">−{rp.cost} б.</span>
+                    <button
+                      onClick={() => handleRefund(rp)}
+                      disabled={refundingId !== null}
+                      className="shrink-0 text-[11px] font-medium text-amber-400 hover:text-amber-300 disabled:opacity-50 disabled:cursor-not-allowed px-2 py-1 transition-colors"
+                    >
+                      {refundingId === rp.id ? '...' : '↩ Вернуть'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs text-slate-400 font-medium uppercase tracking-wider">
+              {selectionMode ? `Выбрано: ${selectedPrizeIds.size}` : 'Доступные призы'}
+            </p>
+            <div className="flex items-center gap-3">
+              {selectionMode && (
+                <button
+                  onClick={exitSelectionMode}
+                  className="text-[11px] font-medium text-slate-400 hover:text-slate-200 transition-colors"
+                >
+                  ✕ Отмена
+                </button>
+              )}
+              {selectableCount > 0 && (
+                <button
+                  onClick={handleToggleSelectAll}
+                  className="text-[11px] font-medium text-indigo-400 hover:text-indigo-300 transition-colors"
+                >
+                  {allSelected ? 'Снять выбор' : 'Выбрать все'}
+                </button>
+              )}
+            </div>
+          </div>
+
+          {!selectionMode && (
+            <p className="text-slate-600 text-[10px] mb-2">Долгое нажатие на приз включает режим выбора</p>
+          )}
+
           <div className="flex flex-col gap-4 mb-4">
             {TIER_ORDER.map((tier) => {
               const tierPrizes = prizes.filter((p) => p.tier === tier);
@@ -405,28 +726,52 @@ export const PrizeBoothView: React.FC = () => {
                     {tierPrizes.map((prize) => {
                       const canAfford = profile.total_score >= prize.cost;
                       const outOfStock = prize.stock !== null && prize.stock <= 0;
-                      const disabled = !canAfford || outOfStock || redeemingPrizeId !== null;
+                      const disabled = outOfStock || redeemingPrizeId !== null || bulkRedeeming;
+                      const isSelected = selectedPrizeIds.has(prize.id);
 
                       return (
                         <div
                           key={prize.id}
-                          className="bg-slate-900 border border-slate-800 rounded-xl p-3 flex items-center justify-between gap-3"
+                          onPointerDown={() => handlePrizePointerDown(prize)}
+                          onPointerUp={clearLongPressTimer}
+                          onPointerLeave={clearLongPressTimer}
+                          onPointerCancel={clearLongPressTimer}
+                          onClick={() => handlePrizeCardClick(prize)}
+                          className={`bg-slate-900 border rounded-xl p-3 flex items-center gap-3 transition-colors select-none ${
+                            isSelected ? 'border-indigo-500 bg-indigo-950/20' : 'border-slate-800'
+                          } ${selectionMode ? 'cursor-pointer' : ''}`}
                         >
-                          <div className="min-w-0">
+                          {selectionMode && (
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              readOnly
+                              disabled={outOfStock}
+                              className="accent-indigo-500 w-4 h-4 shrink-0 disabled:opacity-30 pointer-events-none"
+                            />
+                          )}
+                          <div className="min-w-0 flex-1">
                             <p className="text-slate-100 text-sm font-medium truncate">{prize.title}</p>
-                            <p className="text-slate-500 text-xs mt-0.5">{prize.cost} баллов</p>
+                            <p className="text-slate-500 text-xs mt-0.5">
+                              {prize.cost} баллов{!canAfford && !outOfStock ? ' · не хватает баллов' : ''}
+                            </p>
                           </div>
-                          <button
-                            onClick={() => handleRedeem(prize)}
-                            disabled={disabled}
-                            className={`shrink-0 text-xs font-medium rounded-lg px-3.5 py-2 transition-colors ${
-                              !disabled
-                                ? 'bg-indigo-600 hover:bg-indigo-500 text-white'
-                                : 'bg-slate-800 text-slate-500 cursor-not-allowed'
-                            }`}
-                          >
-                            {outOfStock ? 'Закончился' : canAfford ? 'Выдать' : 'Не хватает баллов'}
-                          </button>
+                          {!selectionMode && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleRedeem(prize);
+                              }}
+                              disabled={!canAfford || disabled}
+                              className={`shrink-0 text-xs font-medium rounded-lg px-3.5 py-2 transition-colors ${
+                                canAfford && !disabled
+                                  ? 'bg-indigo-600 hover:bg-indigo-500 text-white'
+                                  : 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                              }`}
+                            >
+                              {outOfStock ? 'Закончился' : canAfford ? 'Выдать' : 'Не хватает'}
+                            </button>
+                          )}
                         </div>
                       );
                     })}
@@ -435,6 +780,25 @@ export const PrizeBoothView: React.FC = () => {
               );
             })}
           </div>
+
+          {selectionMode && selectedPrizeIds.size > 0 && (
+            <div className="sticky bottom-0 bg-slate-950 border-t border-slate-800 pt-3 mb-3 -mx-5 px-5">
+              <button
+                onClick={handleBulkRedeem}
+                disabled={bulkRedeeming || selectedTotalCost > profile.total_score}
+                className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium rounded-lg py-3 text-sm transition-colors"
+              >
+                {bulkRedeeming
+                  ? 'Выдаём...'
+                  : `Выдать выбранные (${selectedPrizeIds.size}) · ${selectedTotalCost} баллов`}
+              </button>
+              {selectedTotalCost > profile.total_score && (
+                <p className="text-red-400 text-[11px] mt-1.5 text-center">
+                  Не хватает баллов на все выбранные призы
+                </p>
+              )}
+            </div>
+          )}
 
           <button
             onClick={handleScanNext}
@@ -452,6 +816,14 @@ export const PrizeBoothView: React.FC = () => {
       {mode === 'success' && (
         <div className="text-center py-4">
           <p className="text-emerald-400 text-sm font-medium mb-4">{successMsg}</p>
+          {profile && (
+            <button
+              onClick={() => setMode('found')}
+              className="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium rounded-lg py-2.5 transition-colors mb-2"
+            >
+              ← Назад к {profile.username}
+            </button>
+          )}
           <button
             onClick={handleScanNext}
             className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-lg py-2.5 transition-colors"
