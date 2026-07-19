@@ -22,7 +22,12 @@ interface PersistedAdminsViewState {
 function loadPersistedAdminsViewState(): PersistedAdminsViewState {
   try {
     const raw = sessionStorage.getItem(ADMINSVIEW_STORAGE_KEY);
-    if (raw) return JSON.parse(raw) as PersistedAdminsViewState;
+    if (raw) {
+      const parsed = JSON.parse(raw) as PersistedAdminsViewState;
+      // Поле поиска всегда пустое при заходе на вкладку — сохраняем только
+      // найденного участника, чтобы не путаться, кого искали в прошлый раз.
+      return { searchId: '', result: parsed.result };
+    }
   } catch {
     // не критично
   }
@@ -40,13 +45,15 @@ export const AdminsView: React.FC = () => {
   const [editingPermissions, setEditingPermissions] = useState(false);
   const [selectedTabs, setSelectedTabs] = useState<Set<AdminTabId>>(new Set());
 
-  React.useEffect(() => {
+  React.// Сохраняем только найденного участника — поле поиска специально не
+  // персистится, чтобы при возврате на вкладку оно всегда было пустым.
+  useEffect(() => {
     try {
-      sessionStorage.setItem(ADMINSVIEW_STORAGE_KEY, JSON.stringify({ searchId, result }));
+      sessionStorage.setItem(ADMINSVIEW_STORAGE_KEY, JSON.stringify({ searchId: '', result }));
     } catch {
       // не критично
     }
-  }, [searchId, result]);
+  }, [result]);
 
   const handleSearch = async () => {
     const trimmedId = searchId.trim();

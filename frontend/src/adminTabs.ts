@@ -17,7 +17,7 @@ export interface AdminTabDef {
 }
 
 export const ADMIN_TAB_DEFS: AdminTabDef[] = [
-  { id: 'scan', label: 'Сканирование', icon: '📷' },
+  { id: 'scan', label: 'Баллы', icon: '⭐' },
   { id: 'prizeBooth', label: 'Стойка призов', icon: '🎟️' },
   { id: 'redemptions', label: 'История выдач', icon: '🎁' },
   { id: 'achievements', label: 'Достижения', icon: '🏆' },

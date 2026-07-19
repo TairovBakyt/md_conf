@@ -16,9 +16,6 @@ interface FullParticipant {
 
 type SubTab = 'search' | 'fullList';
 
-// Выбранная подвкладка, поиск и результаты — переживает F5. Полный список
-// участников (fullList) не сохраняем — он и так подтягивается заново при
-// каждом заходе на подвкладку, если пуст.
 const RECOVERY_STORAGE_KEY = 'admin_recovery_state';
 
 interface PersistedRecoveryState {
@@ -40,8 +37,6 @@ function loadPersistedRecoveryState(): PersistedRecoveryState {
   return { subTab: 'search', query: '', results: [], resetTarget: null, fullListFilter: '', revealedId: null };
 }
 
-
-
 export const AdminRecoveryView: React.FC = () => {
   const [persistedRecovery] = useState(loadPersistedRecoveryState);
   const { user } = useUser();
@@ -60,6 +55,9 @@ export const AdminRecoveryView: React.FC = () => {
   const [fullListLoading, setFullListLoading] = useState(false);
   const [fullListFilter, setFullListFilter] = useState(persistedRecovery.fullListFilter);
   const [revealedId, setRevealedId] = useState<string | null>(persistedRecovery.revealedId);
+  
+  // Состояние для блокировки кнопки удаления во время запроса
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   useEffect(() => {
     try {
@@ -125,6 +123,44 @@ export const AdminRecoveryView: React.FC = () => {
     }
   };
 
+  // ФУНКЦИЯ УДАЛЕНИЯ УЧАСТНИКА
+  const handleDeleteParticipant = async (targetId: string, targetUsername: string, e: React.MouseEvent) => {
+    // Останавливаем всплытие события, чтобы клик по кнопке не закрывал плашку обратно
+    e.stopPropagation();
+
+    if (!user) return;
+    if (!confirm(`Вы ОКОНЧАТЕЛЬНО уверены, что хотите удалить участника «${targetUsername}»? \nВсе его баллы и история будут стерты навсегда!`)) {
+      return;
+    }
+
+    setDeleteBusy(true);
+    try {
+      const res = await fetch(`${API_URL}/api/admin/delete-participant`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adminId: user.id, targetUserId: targetId }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        alert(data.error || 'Не удалось удалить участника');
+        return;
+      }
+
+      alert(`Участник «${targetUsername}» успешно удален.`);
+      
+      // Вырезаем его из списка на экране
+      setFullList((prev) => prev.filter((p) => p.id !== targetId));
+      setRevealedId(null);
+    } catch (err) {
+      console.error(err);
+      alert('Ошибка при подключении к серверу');
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
+
   const fetchFullList = async () => {
     setFullListLoading(true);
     try {
@@ -138,12 +174,36 @@ export const AdminRecoveryView: React.FC = () => {
     }
   };
 
+  // Безопасный фоновый поллинг данных раз в 3 секунды без бесконечного рендеринга
   useEffect(() => {
-    if (subTab === 'fullList' && fullList.length === 0) {
+    // 1. Сразу загружаем данные один раз при смене вкладки
+    if (subTab === 'fullList') {
       fetchFullList();
     }
+
+    // 2. Устанавливаем интервал, который будет тикать каждые 3 секунды
+    const interval = setInterval(() => {
+      if (subTab === 'fullList') {
+        // Запрашиваем полный список в фоне
+        fetch(`${API_URL}/api/admin/all-participants`)
+          .then((res) => res.json())
+          .then((data) => setFullList(data))
+          .catch((err) => console.error(err));
+      }
+      
+      if (subTab === 'search' && query.trim()) {
+        // Запрашиваем результаты поиска в фоне, если вбит текст
+        fetch(`${API_URL}/api/admin/search-users?query=${encodeURIComponent(query.trim())}`)
+          .then((res) => res.json())
+          .then((data) => setResults(data))
+          .catch((err) => console.error(err));
+      }
+    }, 3000);
+
+    // Очищаем таймер при переключении вкладок или уходе со страницы
+    return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [subTab]);
+  }, [subTab]); // Следим ТОЛЬКО за изменением вкладки, на изменение query больше не реагируем бесконечно
 
   const filteredFullList = fullList.filter(
     (p) =>
@@ -282,10 +342,22 @@ export const AdminRecoveryView: React.FC = () => {
                     <span className="text-slate-100 text-sm font-medium">{p.username}</span>
                     <span className="text-slate-500 text-xs">{p.total_score} баллов</span>
                   </div>
+                  
                   {revealedId === p.id && (
-                    <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-700">
-                      <span className="text-slate-400 text-xs font-mono">ID: {p.id}</span>
-                      <span className="text-amber-400 text-xs font-mono font-semibold">PIN: {p.pin_code}</span>
+                    <div className="flex items-end justify-between mt-2 pt-2 border-t border-slate-700 gap-4">
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-slate-400 text-xs font-mono">ID: {p.id}</span>
+                        <span className="text-amber-400 text-xs font-mono font-semibold">PIN: {p.pin_code}</span>
+                      </div>
+                      
+                      {/* КНОПКА УДАЛЕНИЯ */}
+                      <button
+                        onClick={(e) => handleDeleteParticipant(p.id, p.username, e)}
+                        disabled={deleteBusy}
+                        className="bg-red-950/40 hover:bg-red-650 border border-red-900/50 text-red-400 hover:text-white text-[11px] font-semibold rounded-md px-2.5 py-1.5 transition-colors disabled:opacity-40 cursor-pointer"
+                      >
+                        {deleteBusy ? 'Удаление...' : 'Удалить'}
+                      </button>
                     </div>
                   )}
                 </div>

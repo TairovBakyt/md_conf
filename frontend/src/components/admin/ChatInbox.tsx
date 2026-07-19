@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { API_URL } from '../../config';
 
 const LONG_PRESS_MS = 550;
+const TAP_THRESHOLD_MS = 300;
 
 const EMOJI_LIST = ['😀', '😂', '😍', '👍', '🙏', '🎉', '❤️', '😢', '😮', '🤔', '👋', '🔥'];
 
@@ -64,6 +65,27 @@ function loadPersistedSelected(): InboxItem | null {
   }
 }
 
+// Черновик недописанного сообщения — отдельно на каждого собеседника,
+// переживает F5 и переключение между чатами.
+const DRAFT_KEY_PREFIX = 'admin_chatinbox_draft_';
+
+function loadDraft(userId: string): string {
+  try {
+    return sessionStorage.getItem(DRAFT_KEY_PREFIX + userId) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+function saveDraft(userId: string, text: string) {
+  try {
+    if (text) sessionStorage.setItem(DRAFT_KEY_PREFIX + userId, text);
+    else sessionStorage.removeItem(DRAFT_KEY_PREFIX + userId);
+  } catch {
+    // не критично
+  }
+}
+
 export const ChatInbox: React.FC = () => {
   const [inbox, setInbox] = useState<InboxItem[]>([]);
   const [selected, setSelected] = useState<InboxItem | null>(loadPersistedSelected);
@@ -72,6 +94,8 @@ export const ChatInbox: React.FC = () => {
   const [showEmoji, setShowEmoji] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+  const [recordLocked, setRecordLocked] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [recordError, setRecordError] = useState('');
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -86,6 +110,9 @@ export const ChatInbox: React.FC = () => {
   const [msgSelectionMode, setMsgSelectionMode] = useState(false);
   const [selectedMsgIds, setSelectedMsgIds] = useState<Set<number>>(new Set());
 
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const shouldAutoScrollRef = useRef(true);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
@@ -94,6 +121,10 @@ export const ChatInbox: React.FC = () => {
   const recordingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressFiredRef = useRef(false);
+  const micPressStartRef = useRef(0);
+  const micPressXRef = useRef(0);
+  const recordCancelledRef = useRef(false);
+  const SWIPE_CANCEL_PX = 80;
 
   // Защита от старых ответов (seq) и локальный буфер скрытых сообщений
   const fetchSeqRef = useRef(0);
@@ -145,6 +176,8 @@ export const ChatInbox: React.FC = () => {
 
   const openChat = async (item: InboxItem) => {
     setSelected(item);
+    setInput(loadDraft(item.userId));
+    shouldAutoScrollRef.current = true;
     locallyHiddenRef.current.clear();
     setMsgSelectionMode(false);
     setSelectedMsgIds(new Set());
@@ -165,9 +198,10 @@ export const ChatInbox: React.FC = () => {
   };
 
   // При восстановлении открытого диалога после F5 — сразу подтягиваем
-  // сообщения и запускаем поллинг заново (без этого messages были бы пустыми).
+  // сообщения, черновик и запускаем поллинг заново.
   useEffect(() => {
     if (!selected) return;
+    setInput(loadDraft(selected.userId));
     fetchThread(selected.userId);
     if (pollRef.current) clearInterval(pollRef.current);
     pollRef.current = setInterval(() => fetchThread(selected.userId), 3000);
@@ -176,6 +210,24 @@ export const ChatInbox: React.FC = () => {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Автопрокрутка к последнему сообщению — только если пользователь и так
+  // был внизу (или это первое открытие чата). Если он вручную проскроллил
+  // вверх читать историю, фоновый поллинг больше не сбрасывает его туда.
+  // Прокручиваем именно scrollTop контейнера сообщений (не scrollIntoView),
+  // чтобы не утаскивать вниз всю страницу целиком.
+  useEffect(() => {
+    if (shouldAutoScrollRef.current && messagesContainerRef.current) {
+      messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+    }
+  }, [messages]);
+
+  const handleMessagesScroll = () => {
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    shouldAutoScrollRef.current = distanceFromBottom < 80;
+  };
 
   const sendMessage = async (text: string | null, attachmentType?: string, attachmentData?: string) => {
     if (!selected) return;
@@ -198,9 +250,10 @@ export const ChatInbox: React.FC = () => {
   };
 
   const handleSend = async () => {
-    if (!input.trim()) return;
+    if (!input.trim() || !selected) return;
     const text = input.trim();
     setInput('');
+    saveDraft(selected.userId, '');
     await sendMessage(text);
   };
 
@@ -229,8 +282,13 @@ export const ChatInbox: React.FC = () => {
     return '';
   };
 
+  // Запись голосового — WhatsApp/Telegram-стиль: долгое нажатие на 🎤
+  // записывает, пока держите палец, отпустили — автоотправка; короткий
+  // тап "фиксирует" запись в отдельном режиме с Пауза/Возобновить,
+  // 🗑 Отмена и ➤ Отправить (см. handleMicPointerUp).
   const startRecording = async () => {
     setRecordError('');
+    recordCancelledRef.current = false;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mimeType = getSupportedMimeType();
@@ -244,6 +302,11 @@ export const ChatInbox: React.FC = () => {
       recorder.onstop = () => {
         if (recordingIntervalRef.current) clearInterval(recordingIntervalRef.current);
         stream.getTracks().forEach((t) => t.stop());
+
+        if (recordCancelledRef.current) {
+          audioChunksRef.current = [];
+          return;
+        }
 
         if (audioChunksRef.current.length === 0) {
           setRecordError('Запись не удалась, попробуйте ещё раз');
@@ -261,10 +324,14 @@ export const ChatInbox: React.FC = () => {
       recorder.onerror = () => {
         setRecordError('Ошибка записи');
         setIsRecording(false);
+        setRecordLocked(false);
+        setIsPaused(false);
       };
 
       recorder.start();
       setIsRecording(true);
+      setRecordLocked(false);
+      setIsPaused(false);
       setRecordingSeconds(0);
       recordingIntervalRef.current = setInterval(() => {
         setRecordingSeconds((s) => s + 1);
@@ -275,9 +342,69 @@ export const ChatInbox: React.FC = () => {
     }
   };
 
+  // Отпустили кнопку 🎤 — либо отправляем (долгое удержание), либо
+  // переходим в зафиксированный режим (короткий тап).
+  const handleMicPointerUp = () => {
+    if (!isRecording || recordLocked) return;
+    const held = Date.now() - micPressStartRef.current;
+    if (held < TAP_THRESHOLD_MS) {
+      setRecordLocked(true);
+    } else {
+      stopRecording();
+    }
+  };
+
+  const handleMicPointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
+    if (isRecording) return;
+    micPressStartRef.current = Date.now();
+    micPressXRef.current = e.clientX;
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      // не критично — на некоторых браузерах может отсутствовать
+    }
+    startRecording();
+  };
+
+  // Провели пальцем влево во время удержания — как в WhatsApp, отменяет
+  // запись. setPointerCapture в handleMicPointerDown гарантирует, что это
+  // событие продолжает приходить, даже если палец уходит за пределы кнопки.
+  const handleMicPointerMove = (e: React.PointerEvent<HTMLButtonElement>) => {
+    if (!isRecording || recordLocked) return;
+    const delta = micPressXRef.current - e.clientX;
+    if (delta > SWIPE_CANCEL_PX) {
+      handleCancelRecording();
+    }
+  };
+
   const stopRecording = () => {
     mediaRecorderRef.current?.stop();
     setIsRecording(false);
+    setRecordLocked(false);
+    setIsPaused(false);
+  };
+
+  const handleCancelRecording = () => {
+    recordCancelledRef.current = true;
+    mediaRecorderRef.current?.stop();
+    setIsRecording(false);
+    setRecordLocked(false);
+    setIsPaused(false);
+    setRecordingSeconds(0);
+  };
+
+  const handlePauseResume = () => {
+    const recorder = mediaRecorderRef.current;
+    if (!recorder) return;
+    if (isPaused) {
+      recorder.resume();
+      setIsPaused(false);
+      recordingIntervalRef.current = setInterval(() => setRecordingSeconds((s) => s + 1), 1000);
+    } else {
+      recorder.pause();
+      setIsPaused(true);
+      if (recordingIntervalRef.current) clearInterval(recordingIntervalRef.current);
+    }
   };
 
   const formatDuration = (seconds: number): string => {
@@ -504,8 +631,8 @@ export const ChatInbox: React.FC = () => {
     )[0];
 
     return (
-      <div className="w-full max-w-xl mx-auto bg-slate-950 rounded-2xl p-5">
-        <div className="flex items-center justify-between mb-4">
+      <div className="w-full max-w-xl mx-auto bg-slate-950 rounded-2xl p-5 h-[600px] flex flex-col">
+        <div className="flex items-center justify-between mb-4 shrink-0">
           <span className="text-sm font-medium text-indigo-400">{selected.username}</span>
           <div className="flex items-center gap-3">
             <button onClick={handleDeleteThread} className="text-red-400 text-xs hover:text-red-300">
@@ -520,7 +647,7 @@ export const ChatInbox: React.FC = () => {
         {latestOther && (
           <button
             onClick={() => openChat(latestOther)}
-            className="w-full mb-3 bg-amber-600/20 border border-amber-600/50 rounded-lg py-2.5 px-3 text-left hover:bg-amber-600/30 transition-colors"
+            className="w-full mb-3 bg-amber-600/20 border border-amber-600/50 rounded-lg py-2.5 px-3 text-left hover:bg-amber-600/30 transition-colors shrink-0"
           >
             <div className="flex items-center justify-between mb-0.5">
               <span className="text-amber-400 text-xs font-semibold">🔔 {latestOther.username}</span>
@@ -533,7 +660,7 @@ export const ChatInbox: React.FC = () => {
         )}
 
         {messages.length > 0 && (
-          <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center justify-between mb-2 shrink-0">
             <p className="text-slate-500 text-[10px]">
               {msgSelectionMode ? `Выбрано: ${selectedMsgIds.size}` : 'Долгое нажатие на сообщение — выбор'}
             </p>
@@ -550,7 +677,11 @@ export const ChatInbox: React.FC = () => {
           </div>
         )}
 
-        <div className="flex flex-col gap-2 max-h-96 overflow-y-auto mb-3">
+        <div
+          ref={messagesContainerRef}
+          onScroll={handleMessagesScroll}
+          className="flex flex-col gap-2 flex-1 overflow-y-auto mb-3"
+        >
           {messages.map((m) => {
             const isSelected = selectedMsgIds.has(m.id);
             return (
@@ -624,10 +755,11 @@ export const ChatInbox: React.FC = () => {
               </div>
             );
           })}
+          <div ref={messagesEndRef} />
         </div>
 
         {msgSelectionMode && selectedMsgIds.size > 0 && (
-          <div className="sticky bottom-0 bg-slate-950 border-t border-slate-800 pt-3 mb-3 -mx-5 px-5">
+          <div className="shrink-0 bg-slate-950 border-t border-slate-800 pt-3 mb-3 -mx-5 px-5">
             <button
               onClick={handleBulkDeleteMessages}
               className="w-full bg-red-600 hover:bg-red-500 text-white font-medium rounded-lg py-2.5 text-sm transition-colors"
@@ -637,8 +769,8 @@ export const ChatInbox: React.FC = () => {
           </div>
         )}
 
-        {showEmoji && (
-          <div className="flex flex-wrap gap-1.5 mb-2 bg-slate-800 rounded-lg p-2">
+        {showEmoji && !recordLocked && (
+          <div className="flex flex-wrap gap-1.5 mb-2 bg-slate-800 rounded-lg p-2 shrink-0">
             {EMOJI_LIST.map((emoji) => (
               <button
                 key={emoji}
@@ -654,71 +786,118 @@ export const ChatInbox: React.FC = () => {
           </div>
         )}
 
-        <div className="flex gap-1.5">
-          <button
-            onClick={() => setShowEmoji((v) => !v)}
-            className="bg-slate-800 hover:bg-slate-700 rounded-lg px-2.5 py-2.5 text-sm transition-colors shrink-0"
-          >
-            😊
-          </button>
+        {recordLocked ? (
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={handleCancelRecording}
+              className="bg-slate-800 hover:bg-red-600 text-red-400 hover:text-white rounded-lg px-3 py-2.5 transition-colors shrink-0"
+              title="Удалить запись"
+            >
+              🗑
+            </button>
+            <button
+              onClick={handlePauseResume}
+              className="flex-1 bg-slate-800 hover:bg-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-200 flex items-center justify-center gap-2 transition-colors"
+            >
+              {isPaused ? '▶️ Возобновить' : '⏸️ Пауза'} · {formatDuration(recordingSeconds)}
+            </button>
+            <button
+              onClick={stopRecording}
+              className="bg-emerald-600 hover:bg-emerald-500 text-white rounded-full w-10 h-10 flex items-center justify-center transition-colors shrink-0"
+              title="Отправить"
+            >
+              ➤
+            </button>
+          </div>
+        ) : (
+          <div className="shrink-0">
+            {isRecording && (
+              <p className="text-slate-500 text-[11px] text-center pb-1.5">
+                ← Проведите для отмены · отпустите для отправки
+              </p>
+            )}
+            <div className="flex items-center gap-2">
+              <div className="flex-1 flex items-center gap-1.5 bg-slate-800 border border-slate-700 rounded-full pl-3 pr-1.5 py-1 focus-within:border-indigo-500 min-w-0">
+                <button
+                  onClick={() => setShowEmoji((v) => !v)}
+                  disabled={isRecording}
+                  className="shrink-0 text-lg leading-none disabled:opacity-50"
+                >
+                  😊
+                </button>
 
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*,video/*"
-            onChange={handleFileSelect}
-            className="hidden"
-          />
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
-            className="bg-slate-800 hover:bg-slate-700 rounded-lg px-2.5 py-2.5 text-sm transition-colors shrink-0 disabled:opacity-50"
-          >
-            📎
-          </button>
+                <input
+                  type="text"
+                  value={input}
+                  onChange={(e) => {
+                    setInput(e.target.value);
+                    if (selected) saveDraft(selected.userId, e.target.value);
+                  }}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+                  placeholder="Сообщение..."
+                  disabled={isRecording}
+                  className="flex-1 bg-transparent text-slate-100 text-sm outline-none min-w-0 py-2 disabled:opacity-50"
+                />
 
-          <input
-            ref={cameraInputRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            onChange={handleFileSelect}
-            className="hidden"
-          />
-          <button
-            onClick={() => cameraInputRef.current?.click()}
-            disabled={uploading}
-            className="bg-slate-800 hover:bg-slate-700 rounded-lg px-2.5 py-2.5 text-sm transition-colors shrink-0 disabled:opacity-50"
-          >
-            📸
-          </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*,video/*"
+                  onChange={handleFileSelect}
+                  className="hidden"
+                />
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading || isRecording}
+                  className="shrink-0 text-base leading-none disabled:opacity-50"
+                >
+                  📎
+                </button>
 
-          <button
-            onClick={isRecording ? stopRecording : startRecording}
-            className={`rounded-lg px-2.5 py-2.5 text-xs font-mono font-medium transition-colors shrink-0 ${
-              isRecording ? 'bg-red-600 hover:bg-red-500 text-white' : 'bg-slate-800 hover:bg-slate-700'
-            }`}
-          >
-            {isRecording ? `⏹️ ${formatDuration(recordingSeconds)}` : '🎤'}
-          </button>
+                <input
+                  ref={cameraInputRef}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  onChange={handleFileSelect}
+                  className="hidden"
+                />
+                <button
+                  onClick={() => cameraInputRef.current?.click()}
+                  disabled={uploading || isRecording}
+                  className="shrink-0 text-base leading-none disabled:opacity-50 pr-1"
+                >
+                  📸
+                </button>
+              </div>
 
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-            placeholder="Ответить..."
-            className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-slate-100 text-sm outline-none focus:border-indigo-500 min-w-0"
-          />
-          <button
-            onClick={handleSend}
-            className="bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg px-4 py-2.5 text-sm font-medium transition-colors shrink-0"
-          >
-            Отправить
-          </button>
-        </div>
-        {recordError && <p className="text-red-400 text-xs mt-1">{recordError}</p>}
-        {uploading && <p className="text-slate-500 text-xs mt-1">Загружаем файл...</p>}
+              {input.trim() && !isRecording ? (
+                <button
+                  onClick={handleSend}
+                  className="bg-indigo-600 hover:bg-indigo-500 text-white rounded-full w-11 h-11 flex items-center justify-center shrink-0 transition-colors text-lg"
+                >
+                  ➤
+                </button>
+              ) : (
+                <button
+                  onPointerDown={handleMicPointerDown}
+                  onPointerUp={handleMicPointerUp}
+                  onPointerCancel={handleMicPointerUp}
+                  onPointerMove={handleMicPointerMove}
+                  className={`rounded-full w-11 h-11 flex items-center justify-center shrink-0 select-none transition-colors ${
+                    isRecording
+                      ? 'bg-red-600 text-white text-xs font-mono'
+                      : 'bg-slate-800 hover:bg-slate-700 text-slate-200 text-lg'
+                  }`}
+                >
+                  {isRecording ? formatDuration(recordingSeconds) : '🎤'}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+        {recordError && <p className="text-red-400 text-xs mt-1 shrink-0">{recordError}</p>}
+        {uploading && <p className="text-slate-500 text-xs mt-1 shrink-0">Загружаем файл...</p>}
       </div>
     );
   }

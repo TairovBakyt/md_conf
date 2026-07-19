@@ -69,6 +69,7 @@ interface PersistedPrizeBoothState {
   redeemedPrizes: RedeemedPrize[];
   quizPoints: number;
   filwordPoints: number;
+  deductedTotal: number;
   errorMsg: string;
   successMsg: string;
 }
@@ -107,6 +108,7 @@ export const PrizeBoothView: React.FC = () => {
   const [refundingId, setRefundingId] = useState<number | null>(null);
   const [quizPoints, setQuizPoints] = useState(persistedPrizeBooth?.quizPoints ?? 0);
   const [filwordPoints, setFilwordPoints] = useState(persistedPrizeBooth?.filwordPoints ?? 0);
+  const [deductedTotal, setDeductedTotal] = useState(persistedPrizeBooth?.deductedTotal ?? 0);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedPrizeIds, setSelectedPrizeIds] = useState<Set<number>>(new Set());
   const [bulkRedeeming, setBulkRedeeming] = useState(false);
@@ -126,6 +128,7 @@ export const PrizeBoothView: React.FC = () => {
       redeemedPrizes,
       quizPoints,
       filwordPoints,
+      deductedTotal,
       errorMsg,
       successMsg,
     };
@@ -134,7 +137,7 @@ export const PrizeBoothView: React.FC = () => {
     } catch {
       // не критично
     }
-  }, [mode, profile, stations, prizes, redeemedPrizes, quizPoints, filwordPoints, errorMsg, successMsg]);
+  }, [mode, profile, stations, prizes, redeemedPrizes, quizPoints, filwordPoints, deductedTotal, errorMsg, successMsg]);
 
   // Тихий фоновый поллинг — участник может сам купить приз через /prizes,
   // пока админ смотрит его профиль здесь. Обновляем баланс/призы каждые
@@ -201,18 +204,28 @@ export const PrizeBoothView: React.FC = () => {
 
   const refetchProfileAndHistory = async (userId: string) => {
     try {
-      const [userRes, prizesRes, historyRes] = await Promise.all([
+      const [userRes, stationsRes, prizesRes, historyRes, deductionsRes] = await Promise.all([
         fetch(`${API_URL}/api/user/${userId}`),
+        fetch(`${API_URL}/api/stations/${userId}`),
         fetch(`${API_URL}/api/prizes`),
         fetch(`${API_URL}/api/prizes/history/${userId}`),
+        fetch(`${API_URL}/api/admin/deductions-total/${userId}`),
       ]);
       const userData = await userRes.json();
+      const stationsData = await stationsRes.json();
       const prizesData = await prizesRes.json();
       const historyData = await historyRes.json();
+      const deductionsData = await deductionsRes.json();
 
       if (userRes.ok) setProfile(userData);
+      if (stationsRes.ok) {
+        setStations(stationsData.stations || []);
+        setQuizPoints(stationsData.quizPoints ?? 0);
+        setFilwordPoints(stationsData.filwordPoints ?? 0);
+      }
       if (prizesRes.ok) setPrizes(prizesData);
       if (historyRes.ok) setRedeemedPrizes(historyData);
+      if (deductionsRes.ok) setDeductedTotal(deductionsData.total);
     } catch (err) {
       console.error(err);
     }
@@ -236,16 +249,18 @@ export const PrizeBoothView: React.FC = () => {
     }
 
     try {
-      const [userRes, stationsRes, prizesRes, historyRes] = await Promise.all([
+      const [userRes, stationsRes, prizesRes, historyRes, deductionsRes] = await Promise.all([
         fetch(`${API_URL}/api/user/${scannedUserId}`),
         fetch(`${API_URL}/api/stations/${scannedUserId}`),
         fetch(`${API_URL}/api/prizes`),
         fetch(`${API_URL}/api/prizes/history/${scannedUserId}`),
+        fetch(`${API_URL}/api/admin/deductions-total/${scannedUserId}`),
       ]);
       const userData = await userRes.json();
       const stationsData = await stationsRes.json();
       const prizesData = await prizesRes.json();
       const historyData = await historyRes.json();
+      const deductionsData = await deductionsRes.json();
 
       if (!userRes.ok) {
         setErrorMsg('Участник с таким QR не найден');
@@ -259,6 +274,7 @@ export const PrizeBoothView: React.FC = () => {
       setFilwordPoints(stationsRes.ok ? stationsData.filwordPoints ?? 0 : 0);
       setPrizes(prizesRes.ok ? prizesData : []);
       setRedeemedPrizes(historyRes.ok ? historyData : []);
+      setDeductedTotal(deductionsRes.ok ? deductionsData.total : 0);
       setSelectionMode(false);
       setSelectedPrizeIds(new Set());
       setMode('found');
@@ -475,6 +491,7 @@ export const PrizeBoothView: React.FC = () => {
     setRedeemedPrizes([]);
     setQuizPoints(0);
     setFilwordPoints(0);
+    setDeductedTotal(0);
     setCameraStarted(false);
     setShowManualInput(false);
     setShowMyQr(false);
@@ -651,6 +668,13 @@ export const PrizeBoothView: React.FC = () => {
             ))}
           </div>
 
+          {deductedTotal > 0 && (
+            <div className="flex items-center justify-between bg-slate-900 rounded-lg px-3 py-2 mb-4">
+              <span className="text-xs text-slate-400">Всего списано баллов</span>
+              <span className="text-red-400 text-sm font-medium">−{deductedTotal}</span>
+            </div>
+          )}
+
           {redeemedPrizes.length > 0 && (
             <>
               <p className="text-xs text-slate-400 font-medium uppercase tracking-wider mb-2">
@@ -819,14 +843,14 @@ export const PrizeBoothView: React.FC = () => {
           {profile && (
             <button
               onClick={() => setMode('found')}
-              className="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium rounded-lg py-2.5 transition-colors mb-2"
+              className="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium rounded-lg py-2.5 text-sm transition-colors mb-2"
             >
-              ← Назад к {profile.username}
+              Вернуться в профиль
             </button>
           )}
           <button
             onClick={handleScanNext}
-            className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-lg py-2.5 transition-colors"
+            className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-lg py-2.5 text-sm transition-colors"
           >
             Сканировать следующего
           </button>

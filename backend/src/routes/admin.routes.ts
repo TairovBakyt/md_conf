@@ -618,4 +618,210 @@ router.post('/end-filword', async (req: Request, res: Response) => {
   }
 });
 
+// Единая лента начислений баллов — ручные станции, викторина, филворд,
+// достижения — с реальными датами, для просмотра истории конкретного
+// участника прямо на экране сканирования.
+router.get('/points-history/:userId', async (req: Request, res: Response) => {
+  const { userId } = req.params;
+
+  const STATION_TITLES: Record<number, string> = {
+    1: 'Подписка на соцсети',
+    3: 'Сториз-шеринг',
+    5: 'Поиск объектов',
+    6: 'Игра Азамата',
+  };
+
+  try {
+    const stationsResult = await pool.query(
+      'SELECT station_number, points, object_number, created_at FROM station_completions WHERE user_id = $1',
+      [userId]
+    );
+    const quizResult = await pool.query(
+      'SELECT score, bonus, created_at FROM quiz_final_results WHERE user_id = $1',
+      [userId]
+    );
+    const filwordResult = await pool.query(
+      'SELECT score, created_at FROM filword_sessions WHERE user_id = $1 AND is_finished = true',
+      [userId]
+    );
+    const achievementsResult = await pool.query(
+      'SELECT title, points, created_at FROM achievements WHERE user_id = $1',
+      [userId]
+    );
+
+    const deductionsResult = await pool.query(
+      'SELECT points, created_at FROM point_deductions WHERE user_id = $1',
+      [userId]
+    );
+
+    const items: { title: string; points: number; createdAt: string }[] = [];
+
+    stationsResult.rows.forEach((row) => {
+      const title = STATION_TITLES[row.station_number] ?? `Станция ${row.station_number}`;
+      const suffix = row.object_number ? ` · объект ${row.object_number}` : '';
+      items.push({
+        title: `${row.station_number}. ${title}${suffix}`,
+        points: Number(row.points),
+        createdAt: row.created_at,
+      });
+    });
+
+    if (quizResult.rows[0]) {
+      const { score, bonus, created_at } = quizResult.rows[0];
+      items.push({
+        title: 'Викторина «Hardcore QA»',
+        points: Number(score) + Number(bonus),
+        createdAt: created_at,
+      });
+    }
+
+    if (filwordResult.rows[0]) {
+      const { score, created_at } = filwordResult.rows[0];
+      items.push({
+        title: 'Филворд «Word Researcher»',
+        points: Number(score),
+        createdAt: created_at,
+      });
+    }
+
+    achievementsResult.rows.forEach((row) => {
+      items.push({
+        title: `🏆 ${row.title}`,
+        points: Number(row.points),
+        createdAt: row.created_at,
+      });
+    });
+
+    deductionsResult.rows.forEach((row) => {
+      items.push({
+        title: '✂️ Списание баллов',
+        points: -Number(row.points),
+        createdAt: row.created_at,
+      });
+    });
+
+    items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+    return res.json(items);
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Ошибка получения истории начислений' });
+  }
+});
+
+// Суммарное количество списанных баллов у участника — для отображения
+// на стойке выдачи призов (PrizeBoothView), рядом с остальной статистикой.
+router.get('/deductions-total/:userId', async (req: Request, res: Response) => {
+  const { userId } = req.params;
+
+  try {
+    const result = await pool.query(
+      'SELECT COALESCE(SUM(points), 0) AS total FROM point_deductions WHERE user_id = $1',
+      [userId]
+    );
+
+    return res.json({ total: Number(result.rows[0].total) });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Ошибка получения суммы списаний' });
+  }
+});
+
+// Списание баллов вручную — на случай ошибочного начисления. Не привязано
+// к конкретной записи истории, просто напрямую корректирует total_score.
+router.post('/deduct-points', async (req: Request, res: Response) => {
+  const { adminId, targetUserId, points } = req.body;
+
+  const amount = Number(points);
+  if (!amount || amount <= 0) {
+    return res.status(400).json({ error: 'Введите положительное число баллов для списания' });
+  }
+
+  try {
+    const adminCheck = await pool.query('SELECT is_admin FROM users WHERE id = $1', [adminId]);
+    if (!adminCheck.rows[0]?.is_admin) {
+      return res.status(403).json({ error: 'Доступ запрещён' });
+    }
+
+    const result = await pool.query(
+      'UPDATE users SET total_score = GREATEST(total_score - $1, 0) WHERE id = $2 RETURNING total_score, username',
+      [amount, targetUserId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Участник не найден' });
+    }
+
+    // Логируем само списание — чтобы оно тоже попало в общую ленту истории
+    // начислений (points-history) со знаком минус, а не пропадало бесследно.
+    await pool.query(
+      'INSERT INTO point_deductions (user_id, admin_id, points) VALUES ($1, $2, $3)',
+      [targetUserId, adminId, amount]
+    );
+
+    return res.json({
+      success: true,
+      newBalance: result.rows[0].total_score,
+      username: result.rows[0].username,
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Ошибка списания баллов' });
+  }
+});
+
+
+// ==========================================
+// УДАЛЕНИЕ УЧАСТНИКА ИЗ СИСТЕМЫ (БЕЗВОЗВРАТНО)
+// ==========================================
+router.delete('/delete-participant', async (req: Request, res: Response) => {
+  const { adminId, targetUserId } = req.body;
+
+  if (!adminId || !targetUserId) {
+    return res.status(400).json({ error: 'Не передан ID админа или пользователя' });
+  }
+
+  try {
+    // 1. Проверяем права администратора
+    const adminCheck = await pool.query('SELECT is_admin FROM users WHERE id = $1', [adminId]);
+    if (!adminCheck.rows[0]?.is_admin) {
+      return res.status(403).json({ error: 'Доступ запрещён' });
+    }
+
+    // 2. Проверяем целевого пользователя
+    const targetCheck = await pool.query('SELECT id, username, is_main_admin FROM users WHERE id = $1', [targetUserId]);
+    if (targetCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Участник не найден' });
+    }
+
+    if (targetCheck.rows[0].is_main_admin) {
+      return res.status(403).json({ error: 'Нельзя удалить главного администратора' });
+    }
+
+    // 3. ОЧИСТКА СВЯЗАННЫХ ТАБЛИЦ (чтобы базы данных не ругалась на FOREIGN KEY)
+    // Удаляем историю станций, квизов, филвордов, призов и списаний
+    await pool.query('DELETE FROM station_completions WHERE user_id = $1', [targetUserId]);
+    await pool.query('DELETE FROM quiz_final_results WHERE user_id = $1', [targetUserId]);
+    await pool.query('DELETE FROM quiz_answers WHERE user_id = $1', [targetUserId]); 
+    await pool.query('DELETE FROM filword_sessions WHERE user_id = $1', [targetUserId]);
+    await pool.query('DELETE FROM achievements WHERE user_id = $1', [targetUserId]);
+    await pool.query('DELETE FROM prize_redemptions WHERE user_id = $1', [targetUserId]);
+    await pool.query('DELETE FROM point_deductions WHERE user_id = $1', [targetUserId]);
+    
+    // Очищаем запросы на сканирование (где он был и участником, и вдруг админом)
+    await pool.query('DELETE FROM scan_requests WHERE participant_id = $1 OR admin_id = $1', [targetUserId]);
+
+    // 4. Теперь безвозвратно удаляем самого юзера
+    await pool.query('DELETE FROM users WHERE id = $1', [targetUserId]);
+
+    return res.json({ 
+      success: true, 
+      message: `Участник «${targetCheck.rows[0].username}» успешно удален` 
+    });
+  } catch (error) {
+    console.error('Ошибка на бэкенде при удалении участника:', error);
+    return res.status(500).json({ error: 'Ошибка сервера при удалении участника' });
+  }
+});
+
 export default router;

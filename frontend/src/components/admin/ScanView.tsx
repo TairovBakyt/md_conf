@@ -29,10 +29,15 @@ interface StationUnlockState {
   station6_unlocked: boolean;
 }
 
+interface HistoryItem {
+  title: string;
+  points: number;
+  createdAt: string;
+}
+
 // Состояние экрана — переживает обновление страницы (F5), чтобы админ не
-// терял найденного участника посреди работы. Транзитные "в процессе"
-// состояния (submitting) откатываются к "found" при восстановлении, так
-// как сам запрос уже не может быть завершён после перезагрузки.
+// терял найденного участника посреди работы. Транзитные состояния
+// (submitting) откатываются к "found" при восстановлении.
 const SCAN_STORAGE_KEY = 'admin_scanview_state';
 
 interface PersistedScanState {
@@ -62,8 +67,6 @@ function loadPersistedScanState(): PersistedScanState | null {
     return null;
   }
 }
-
-
 
 export const ScanView: React.FC = () => {
   const [persistedScan] = useState(loadPersistedScanState);
@@ -96,10 +99,41 @@ export const ScanView: React.FC = () => {
     station5_unlocked: true,
     station6_unlocked: true,
   });
+  const [copiedFeedback, setCopiedFeedback] = useState(false);
+
+  // Профиль/история начислений — открывается по клику на карточку участника
+  const [showProfile, setShowProfile] = useState(false);
+  const [profileBalance, setProfileBalance] = useState<number | null>(null);
+  const [pointsHistory, setPointsHistory] = useState<HistoryItem[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [deductAmount, setDeductAmount] = useState('');
+  const [deducting, setDeducting] = useState(false);
+  const [deductError, setDeductError] = useState('');
 
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const isProcessingRef = useRef(false);
   const incomingPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Тихий фоновый опрос статуса станций — не трогает loading/ошибки,
+  // просто держит доступность кнопок актуальной, пока админ работает
+  // на этой вкладке (админ может открыть/закрыть станцию из "Игры"
+  // в другой вкладке в любой момент).
+  const fetchStationSettings = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/settings`);
+      const data = await res.json();
+      if (res.ok) {
+        setStationUnlocked({
+          station1_unlocked: !!data.station1_unlocked,
+          station3_unlocked: !!data.station3_unlocked,
+          station5_unlocked: !!data.station5_unlocked,
+          station6_unlocked: !!data.station6_unlocked,
+        });
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   // Сохраняем состояние на каждое изменение — переживает F5.
   useEffect(() => {
@@ -134,27 +168,6 @@ export const ScanView: React.FC = () => {
     errorMsg,
     successMsg,
   ]);
-
-  // Тихий фоновый опрос статуса станций — не трогает loading/ошибки,
-  // просто держит доступность кнопок актуальной, пока админ работает
-  // на этой вкладке (админ может открыть/закрыть станцию из "Игры"
-  // в другой вкладке в любой момент).
-  const fetchStationSettings = async () => {
-    try {
-      const res = await fetch(`${API_URL}/api/settings`);
-      const data = await res.json();
-      if (res.ok) {
-        setStationUnlocked({
-          station1_unlocked: !!data.station1_unlocked,
-          station3_unlocked: !!data.station3_unlocked,
-          station5_unlocked: !!data.station5_unlocked,
-          station6_unlocked: !!data.station6_unlocked,
-        });
-      }
-    } catch (err) {
-      console.error(err);
-    }
-  };
 
   useEffect(() => {
     fetchStationSettings();
@@ -220,7 +233,7 @@ export const ScanView: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, user]);
 
-  const handleScanSuccess = async (scannedUserId: string) => {
+  const handleScanSuccess = async (scannedUserId: string, isManualEntry = false) => {
     if (isProcessingRef.current) return;
     isProcessingRef.current = true;
 
@@ -242,7 +255,7 @@ export const ScanView: React.FC = () => {
       const data = await res.json();
 
       if (!res.ok) {
-        setErrorMsg('Участник с таким QR не найден');
+        setErrorMsg(isManualEntry ? 'Участник с таким ID не найден' : 'Участник с таким QR не найден');
         setMode('error');
         return;
       }
@@ -276,7 +289,7 @@ export const ScanView: React.FC = () => {
       }
     }
 
-    await handleScanSuccess(trimmedId);
+    await handleScanSuccess(trimmedId, true);
   };
 
   const handleSubmit = async () => {
@@ -372,6 +385,83 @@ export const ScanView: React.FC = () => {
     }
   };
 
+  // Открывает профиль участника — общий баланс и единую ленту начислений
+  // (ручные станции + викторина + филворд + достижения), отсортированную
+  // по реальному времени начисления.
+  const openProfile = async () => {
+    if (!participant) return;
+    setShowProfile(true);
+    setHistoryLoading(true);
+    setDeductAmount('');
+    setDeductError('');
+    try {
+      const [userRes, historyRes] = await Promise.all([
+        fetch(`${API_URL}/api/user/${participant.id}`),
+        fetch(`${API_URL}/api/admin/points-history/${participant.id}`),
+      ]);
+      const userData = await userRes.json();
+      const historyData = await historyRes.json();
+
+      if (userRes.ok) setProfileBalance(userData.total_score);
+      if (historyRes.ok) setPointsHistory(historyData);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  const closeProfile = () => {
+    setShowProfile(false);
+    setProfileBalance(null);
+    setPointsHistory([]);
+    setDeductAmount('');
+    setDeductError('');
+  };
+
+  const handleDeductPoints = async () => {
+    if (!user || !participant || deducting) return;
+
+    const amount = Number(deductAmount);
+    if (!deductAmount.trim() || Number.isNaN(amount) || amount <= 0) {
+      setDeductError('Введите положительное число баллов');
+      return;
+    }
+
+    if (!confirm(`Списать ${amount} баллов у ${participant.username}?`)) return;
+
+    setDeducting(true);
+    setDeductError('');
+
+    try {
+      const res = await fetch(`${API_URL}/api/admin/deduct-points`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adminId: user.id, targetUserId: participant.id, points: amount }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        setDeductError(data.error || 'Не удалось списать баллы');
+        return;
+      }
+
+      setDeductAmount('');
+
+      // Перезапрашиваем баланс и историю целиком, чтобы списание сразу
+      // отобразилось в общей ленте (со знаком минус), а не только в балансе.
+      const historyRes = await fetch(`${API_URL}/api/admin/points-history/${participant.id}`);
+      const historyData = await historyRes.json();
+      if (historyRes.ok) setPointsHistory(historyData);
+      setProfileBalance(data.newBalance);
+    } catch (err) {
+      console.error(err);
+      setDeductError('Сервер недоступен');
+    } finally {
+      setDeducting(false);
+    }
+  };
+
   const handleScanNext = () => {
     isProcessingRef.current = false;
     setParticipant(null);
@@ -390,6 +480,7 @@ export const ScanView: React.FC = () => {
     setObjectNumberInput('');
     setObjectPointsInput(String(POINTS_PER_OBJECT));
     setObjectSubmitting(false);
+    closeProfile();
     setMode('scanning');
   };
 
@@ -397,8 +488,6 @@ export const ScanView: React.FC = () => {
   // напрямую через ссылку невозможно (same-origin policy). Максимум, что
   // можно сделать — скопировать ник в буфер обмена перед переходом, чтобы
   // админу оставалось только вставить его (Ctrl+V) внутри Instagram/LinkedIn.
-  const [copiedFeedback, setCopiedFeedback] = useState(false);
-
   const handleCopyAndOpen = async (handle: string) => {
     if (handle.trim()) {
       try {
@@ -410,6 +499,19 @@ export const ScanView: React.FC = () => {
         // Буфер обмена может быть недоступен (например, без HTTPS или разрешения) —
         // ссылка всё равно откроется как обычно, просто без автокопирования.
       }
+    }
+  };
+
+  const formatHistoryDate = (iso: string): string => {
+    try {
+      return new Date(iso).toLocaleString('ru-RU', {
+        day: '2-digit',
+        month: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    } catch {
+      return '';
     }
   };
 
@@ -537,21 +639,25 @@ export const ScanView: React.FC = () => {
         </>
       )}
 
-      {mode === 'found' && participant && (
+      {mode === 'found' && participant && !showProfile && (
         <>
           <div className="flex items-center gap-2 mb-4">
             <span className="text-sm font-medium text-indigo-400">Участник найден</span>
           </div>
 
-          <div className="flex items-center gap-3 bg-slate-800 rounded-xl p-3 mb-4">
-            <div className="w-9 h-9 rounded-full bg-indigo-700 flex items-center justify-center text-sm font-medium text-white">
+          <button
+            onClick={openProfile}
+            className="w-full flex items-center gap-3 bg-slate-800 hover:bg-slate-700 rounded-xl p-3 mb-4 transition-colors text-left"
+          >
+            <div className="w-9 h-9 rounded-full bg-indigo-700 flex items-center justify-center text-sm font-medium text-white shrink-0">
               {initials}
             </div>
-            <div>
+            <div className="min-w-0 flex-1">
               <p className="text-sm font-medium text-slate-100">{participant.username}</p>
               <p className="text-xs text-slate-500 font-mono">{participant.id}</p>
             </div>
-          </div>
+            <span className="text-slate-500 text-xs shrink-0">История и баллы →</span>
+          </button>
 
           <label className="text-xs text-slate-400 block mb-2">Номер станции (для себя)</label>
           <div className="flex gap-1.5 mb-2 flex-wrap">
@@ -588,7 +694,7 @@ export const ScanView: React.FC = () => {
               <label className="text-xs text-slate-400 block mb-1.5">
                 Ник участника {isInstagram ? 'в Instagram' : 'в LinkedIn'}
               </label>
-              <div className="flex gap-2">
+              <div className="flex flex-col gap-2">
                 <input
                   type="text"
                   value={currentHandle}
@@ -607,7 +713,7 @@ export const ScanView: React.FC = () => {
                   target="_blank"
                   rel="noopener noreferrer"
                   onClick={() => handleCopyAndOpen(currentHandle)}
-                  className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium rounded-lg px-3 py-2 flex items-center justify-center whitespace-nowrap transition-colors"
+                  className="w-full bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium rounded-lg px-3 py-2 flex items-center justify-center whitespace-nowrap transition-colors"
                 >
                   Открыть подписчиков
                 </a>
@@ -674,14 +780,24 @@ export const ScanView: React.FC = () => {
                 className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-slate-100 text-base outline-none focus:border-indigo-500 mb-3 disabled:opacity-50"
               />
 
-              <button
-                onClick={handleSubmit}
-                disabled={currentStationLocked}
-                className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-medium rounded-lg py-2.5 transition-colors mb-2"
-              >
-                <span className="sm:hidden">Начислить {pointsInput} баллов</span>
-                <span className="hidden sm:inline">Начислить {pointsInput} баллов · Станция {selectedStation}</span>
-              </button>
+              <span className="sm:hidden">
+                <button
+                  onClick={handleSubmit}
+                  disabled={currentStationLocked}
+                  className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-medium rounded-lg py-2.5 transition-colors mb-2"
+                >
+                  Начислить {pointsInput} баллов
+                </button>
+              </span>
+              <span className="hidden sm:inline">
+                <button
+                  onClick={handleSubmit}
+                  disabled={currentStationLocked}
+                  className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-medium rounded-lg py-2.5 transition-colors mb-2"
+                >
+                  Начислить {pointsInput} баллов · Станция {selectedStation}
+                </button>
+              </span>
               <button
                 onClick={handleScanNext}
                 className="w-full text-slate-500 hover:text-slate-300 text-xs py-1.5 transition-colors"
@@ -690,6 +806,75 @@ export const ScanView: React.FC = () => {
               </button>
             </>
           )}
+        </>
+      )}
+
+      {mode === 'found' && participant && showProfile && (
+        <>
+          <div className="flex items-center justify-between mb-4">
+            <span className="text-sm font-medium text-indigo-400">{participant.username}</span>
+            <button onClick={closeProfile} className="text-slate-500 hover:text-slate-300 text-xs">
+              ← Назад к начислению
+            </button>
+          </div>
+
+          <div className="bg-slate-800 rounded-xl p-3 mb-4 flex items-center justify-between">
+            <span className="text-slate-400 text-sm">Общий баланс</span>
+            <span className="text-slate-100 text-xl font-bold">
+              {profileBalance === null ? '—' : profileBalance}
+            </span>
+          </div>
+
+          <p className="text-xs text-slate-400 font-medium uppercase tracking-wider mb-2">
+            История начислений
+          </p>
+
+          {historyLoading ? (
+            <p className="text-slate-500 text-sm text-center py-6">Загружаем...</p>
+          ) : pointsHistory.length === 0 ? (
+            <p className="text-slate-600 text-xs text-center py-6">Пока ничего не начислено</p>
+          ) : (
+            <div className="flex flex-col gap-1.5 mb-4 max-h-72 overflow-y-auto">
+              {pointsHistory.map((item, i) => (
+                <div key={i} className="flex items-center justify-between bg-slate-900 rounded-lg px-3 py-2 gap-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-slate-200 text-xs truncate">{item.title}</p>
+                    <p className="text-slate-600 text-[10px]">{formatHistoryDate(item.createdAt)}</p>
+                  </div>
+                  <span className={`text-xs font-medium shrink-0 ${item.points < 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                    {item.points >= 0 ? `+${item.points}` : item.points}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="border-t border-slate-800 pt-4">
+            <p className="text-xs text-slate-400 font-medium uppercase tracking-wider mb-2">
+              Списать баллы
+            </p>
+            <p className="text-slate-500 text-[11px] mb-3">
+              Если начислили баллы по ошибке — спишите нужное количество вручную. Не привязано к конкретной записи истории.
+            </p>
+            <div className="flex gap-2 mb-2">
+              <input
+                type="text"
+                inputMode="numeric"
+                value={deductAmount}
+                onChange={(e) => setDeductAmount(e.target.value.replace(/\D/g, ''))}
+                placeholder="Например, 10"
+                className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-slate-100 text-sm outline-none focus:border-red-500"
+              />
+              <button
+                onClick={handleDeductPoints}
+                disabled={deducting}
+                className="bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white font-medium rounded-lg px-4 py-2.5 text-sm transition-colors shrink-0"
+              >
+                {deducting ? '...' : 'Списать'}
+              </button>
+            </div>
+            {deductError && <p className="text-red-400 text-xs">{deductError}</p>}
+          </div>
         </>
       )}
 

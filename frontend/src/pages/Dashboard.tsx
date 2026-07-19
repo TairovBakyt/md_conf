@@ -41,12 +41,20 @@ export const Dashboard: React.FC = () => {
       const data = await response.json();
 
       if (!response.ok) {
-        if (isInitial) {
-          setError(data.error || 'Не удалось загрузить профиль');
-          setLoading(false);
-        }
-        return;
-      }
+  // НОВОЕ: Если сервер ответил, что профиль не найден (участник удален),
+  // принудительно разлогиниваем его и отправляем на страницу авторизации
+  if (response.status === 404 || data.error === 'Участник не найден') {
+    logout();
+    navigate('/auth');
+    return;
+  }
+
+  if (isInitial) {
+    setError(data.error || 'Не удалось загрузить профиль');
+    setLoading(false);
+  }
+  return;
+}
 
       // Если админ сбросил PIN — session_version на сервере увеличился.
       // Значит эта сессия больше не актуальна, разлогиниваем принудительно.
