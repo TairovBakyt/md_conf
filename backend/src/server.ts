@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import compression from 'compression';
 
 import authRoutes from './routes/auth.routes';
 import userRoutes from './routes/user.routes';
@@ -20,6 +21,7 @@ app.use(cors());
 // Лимит увеличен до 15mb — фото/видео/аудио с телефона в base64 (JSON body)
 // не помещались в дефолтный лимит express.json() в 100kb, из-за чего
 // отправка вложений с мобильных устройств зависала на "Загружаем..."
+app.use(compression());
 app.use(express.json({ limit: '40mb' }));
 app.use('/api/auth', authRoutes);
 app.use('/api/user', userRoutes);
@@ -32,6 +34,12 @@ app.use('/api/chat', chatRoutes);
 app.use('/api/objects', objectsRoutes);
 app.use('/api/stations', stationsRoutes);
 app.use('/api/admin-chat', adminChatRoutes);
+
+// Лёгкий эндпоинт для будильника (внешний cron-пинг), не даёт Render
+// засыпать на бесплатном тарифе, и заодно полезен для проверки живости.
+app.get('/health', (_req, res) => {
+  res.json({ status: 'ok' });
+});
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🔥 Сервер развернут на http://localhost:${PORT}`);

@@ -4,6 +4,10 @@ import { useUser } from '../authorization/UserContext';
 
 import { API_URL } from '../config';
 const TIMER_SECONDS = 20; // визуально показываем 20, у бэка запас до 22 сек
+const NO_ANSWER_NEXT_DELAY_MS = 400; // короткая пауза перед след. вопросом при таймауте (без подсветки)
+const ANSWERED_NEXT_DELAY_MS = 1200; // обычная задержка при осознанном ответе (с подсветкой)
+const FETCH_RETRY_ATTEMPTS = 2; // доп. попытки при сетевом сбое (итого до 3 попыток)
+const FETCH_RETRY_DELAY_MS = 700;
 
 interface QuestionData {
   id: number;
@@ -14,6 +18,26 @@ interface QuestionData {
 }
 
 type ScreenState = 'loading' | 'question' | 'finished' | 'already-passed' | 'error';
+
+// Сеть на телефонах может кратковременно моргнуть (смена вышки, блок/разблок
+// экрана) — один неудачный fetch не должен сразу сносить всю игру на красный
+// экран ошибки. Повторяем запрос несколько раз с паузой и только после этого
+// сдаёмся. Retry применяется только к настоящим сетевым сбоям (fetch throws),
+// не к осмысленным ответам сервера (4xx/5xx с телом) — те обрабатываются как раньше.
+async function fetchWithRetry(url: string, options?: RequestInit): Promise<Response> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= FETCH_RETRY_ATTEMPTS; attempt++) {
+    try {
+      return await fetch(url, options);
+    } catch (err) {
+      lastError = err;
+      if (attempt < FETCH_RETRY_ATTEMPTS) {
+        await new Promise((resolve) => setTimeout(resolve, FETCH_RETRY_DELAY_MS));
+      }
+    }
+  }
+  throw lastError;
+}
 
 export const QuizGameIndividual: React.FC = () => {
   const { user } = useUser();
@@ -28,6 +52,7 @@ export const QuizGameIndividual: React.FC = () => {
   const [correctCount, setCorrectCount] = useState(0);
   const [errorMsg, setErrorMsg] = useState('');
   const [wrongCount, setWrongCount] = useState(0);
+  const [noAnswerCount, setNoAnswerCount] = useState(0);
   const [result, setResult] = useState<{
     scoreEarned: number;
     bonusEarned: number;
@@ -53,7 +78,7 @@ export const QuizGameIndividual: React.FC = () => {
   const startGame = async () => {
     if (!user) return;
     try {
-      const res = await fetch(`${API_URL}/api/quiz/start`, {
+      const res = await fetchWithRetry(`${API_URL}/api/quiz/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: user.id }),
@@ -77,7 +102,7 @@ export const QuizGameIndividual: React.FC = () => {
   const fetchQuestion = async () => {
     if (!user) return;
     try {
-      const res = await fetch(`${API_URL}/api/quiz/question/${user.id}`);
+      const res = await fetchWithRetry(`${API_URL}/api/quiz/question/${user.id}`);
       const data = await res.json();
 
       if (!res.ok) {
@@ -112,7 +137,7 @@ export const QuizGameIndividual: React.FC = () => {
       setTimeLeft((prev) => {
         if (prev <= 1) {
           if (timerRef.current) clearInterval(timerRef.current);
-          submitAnswer(null);
+          submitAnswer(null, true);
           return 0;
         }
         return prev - 1;
@@ -120,7 +145,7 @@ export const QuizGameIndividual: React.FC = () => {
     }, 1000);
   };
 
-  const submitAnswer = async (optionIndex: number | null) => {
+  const submitAnswer = async (optionIndex: number | null, isTimeout = false) => {
     if (!user) return;
 
     if (answeredRef.current) return; // уже отвечали на этот вопрос — игнорируем повторный вызов
@@ -130,7 +155,7 @@ export const QuizGameIndividual: React.FC = () => {
     setSelected(optionIndex);
 
     try {
-      const res = await fetch(`${API_URL}/api/quiz/answer`, {
+      const res = await fetchWithRetry(`${API_URL}/api/quiz/answer`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: user.id, selectedOption: optionIndex }),
@@ -140,6 +165,25 @@ export const QuizGameIndividual: React.FC = () => {
       if (!res.ok) {
         setErrorMsg(data.error || 'Ошибка отправки ответа');
         setScreen('error');
+        return;
+      }
+
+      // Таймаут — не показываем подсветку правильно/неверно, считаем как
+      // отдельную категорию "без ответа" и сразу идём к следующему вопросу.
+      if (isTimeout) {
+        setNoAnswerCount((prev) => prev + 1);
+
+        if (data.isFinished) {
+          setResult({
+            scoreEarned: data.scoreEarned,
+            bonusEarned: data.bonusEarned,
+            totalEarned: data.totalEarned,
+            message: data.message,
+          });
+          setTimeout(() => setScreen('finished'), NO_ANSWER_NEXT_DELAY_MS);
+        } else {
+          setTimeout(() => fetchQuestion(), NO_ANSWER_NEXT_DELAY_MS);
+        }
         return;
       }
 
@@ -158,9 +202,9 @@ export const QuizGameIndividual: React.FC = () => {
           totalEarned: data.totalEarned,
           message: data.message,
         });
-        setTimeout(() => setScreen('finished'), 1200);
+        setTimeout(() => setScreen('finished'), ANSWERED_NEXT_DELAY_MS);
       } else {
-        setTimeout(() => fetchQuestion(), 1200);
+        setTimeout(() => fetchQuestion(), ANSWERED_NEXT_DELAY_MS);
       }
     } catch (err) {
       console.error(err);
@@ -171,7 +215,7 @@ export const QuizGameIndividual: React.FC = () => {
 
   const handleSelect = (index: number) => {
     if (selected !== null) return;
-    submitAnswer(index);
+    submitAnswer(index, false);
   };
 
   if (screen === 'loading') {
@@ -243,6 +287,7 @@ export const QuizGameIndividual: React.FC = () => {
             ВОПРОС {question.currentIndex + 1} ИЗ {question.totalQuestions}
           </span>
           <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-500 font-medium">— {noAnswerCount}</span>
             <span className="text-xs text-red-400 font-medium">✗ {wrongCount}</span>
             <span className="text-xs text-emerald-400 font-medium">✓ {correctCount}</span>
             <span className="text-xs text-slate-500">Hardcore QA</span>

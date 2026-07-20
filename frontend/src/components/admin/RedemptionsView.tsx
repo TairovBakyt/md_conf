@@ -14,8 +14,8 @@ export const RedemptionsView: React.FC = () => {
   const [redemptions, setRedemptions] = useState<Redemption[]>([]);
   const [loading, setLoading] = useState(false);
 
-  const fetchRedemptions = async () => {
-    setLoading(true);
+  const fetchRedemptions = async (isInitial = false) => {
+    if (isInitial) setLoading(true);
     try {
       const res = await fetch(`${API_URL}/api/admin/redemptions`);
       const data = await res.json();
@@ -25,19 +25,22 @@ export const RedemptionsView: React.FC = () => {
     } catch (err) {
       console.error(err);
     } finally {
-      setLoading(false);
+      if (isInitial) setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchRedemptions();
+    fetchRedemptions(true);
+    const interval = setInterval(() => fetchRedemptions(false), 5000);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
     <div className="w-full max-w-2xl mx-auto bg-slate-950 rounded-2xl p-5">
       <div className="flex items-center justify-between mb-4">
         <span className="text-sm font-medium text-indigo-400">Выкупленные призы</span>
-        <button onClick={fetchRedemptions} className="text-xs text-slate-500 hover:text-slate-300">
+        <button onClick={() => fetchRedemptions(true)} className="text-xs text-slate-500 hover:text-slate-300">
           Обновить
         </button>
       </div>

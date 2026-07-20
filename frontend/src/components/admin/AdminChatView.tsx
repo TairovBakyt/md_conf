@@ -4,7 +4,7 @@ import { API_URL } from '../../config';
 import { type AdminTabId } from '../../adminTabs';
 
 const LONG_PRESS_MS = 550;
-const TAP_THRESHOLD_MS = 300;
+const TAP_THRESHOLD_MS = 200;
 
 function renderMessageText(text: string): React.ReactNode[] {
   const parts = text.split(/(https?:\/\/[^\s]+)/g);
@@ -133,6 +133,7 @@ export const AdminChatView: React.FC = () => {
   const [view, setView] = useState<View>(persisted.view);
   const [inbox, setInbox] = useState<InboxItem[]>([]);
   const [allAdmins, setAllAdmins] = useState<AdminItem[]>([]);
+  const [adminSearchQuery, setAdminSearchQuery] = useState('');
   const [selectedOther, setSelectedOther] = useState<{ id: string; username: string; adminPermissions: AdminTabId[] | null; isMainAdmin?: boolean } | null>(
     persisted.selectedOther
   );
@@ -140,6 +141,7 @@ export const AdminChatView: React.FC = () => {
   const [input, setInput] = useState('');
   const [showEmoji, setShowEmoji] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [uploadPreview, setUploadPreview] = useState<{ url: string; type: 'image' | 'video' } | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [recordLocked, setRecordLocked] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
@@ -171,6 +173,7 @@ export const AdminChatView: React.FC = () => {
   const longPressFiredRef = useRef(false);
   const micPressStartRef = useRef(0);
   const micPressXRef = useRef(0);
+  const micPressYRef = useRef(0);
   const recordCancelledRef = useRef(false);
   const SWIPE_CANCEL_PX = 80;
 
@@ -183,6 +186,18 @@ export const AdminChatView: React.FC = () => {
       // не критично
     }
   }, [view, selectedOther]);
+
+  // Останавливаем запись при размонтировании компонента (переключение чата,
+  // смена вкладки) — иначе микрофон продолжает работать в фоне.
+  useEffect(() => {
+    return () => {
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        recordCancelledRef.current = true;
+        mediaRecorderRef.current.stop();
+      }
+      if (recordingIntervalRef.current) clearInterval(recordingIntervalRef.current);
+    };
+  }, []);
 
   const fetchInbox = async () => {
     if (!user) return;
@@ -291,6 +306,16 @@ export const AdminChatView: React.FC = () => {
 
   const closeThread = () => {
     if (threadPollRef.current) clearInterval(threadPollRef.current);
+    // Останавливаем запись если она была активна
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      recordCancelledRef.current = true;
+      mediaRecorderRef.current.stop();
+    }
+    if (recordingIntervalRef.current) clearInterval(recordingIntervalRef.current);
+    setIsRecording(false);
+    setRecordLocked(false);
+    setIsPaused(false);
+    setRecordingSeconds(0);
     setSelectedOther(null);
     setMessages([]);
     setRevealedId(null);
@@ -301,9 +326,10 @@ export const AdminChatView: React.FC = () => {
   };
 
   const openNewChat = () => {
-    fetchAllAdmins();
-    setView('newChat');
-  };
+  fetchAllAdmins();
+  setAdminSearchQuery('');
+  setView('newChat');
+};
 
   const sendMessage = async (text: string | null, attachmentType?: string, attachmentData?: string) => {
     if (!user || !selectedOther) return;
@@ -336,15 +362,19 @@ export const AdminChatView: React.FC = () => {
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    const type = file.type.startsWith('video') ? 'video' : 'image';
+    const previewUrl = URL.createObjectURL(file);
+    setUploadPreview({ url: previewUrl, type });
     setUploading(true);
     try {
       const base64 = await fileToBase64(file);
-      const type = file.type.startsWith('video') ? 'video' : 'image';
       await sendMessage(null, type, base64);
     } catch (err) {
       console.error(err);
     } finally {
       setUploading(false);
+      setUploadPreview(null);
+      URL.revokeObjectURL(previewUrl);
       if (fileInputRef.current) fileInputRef.current.value = '';
       if (cameraInputRef.current) cameraInputRef.current.value = '';
     }
@@ -422,23 +452,46 @@ export const AdminChatView: React.FC = () => {
   // переходим в зафиксированный режим (короткий тап).
   const handleMicPointerUp = () => {
     if (!isRecording || recordLocked) return;
-    const held = Date.now() - micPressStartRef.current;
+    // Если micPressStartRef не был установлен (0) — считаем как короткий тап.
+    const held = micPressStartRef.current === 0
+      ? 0
+      : Date.now() - micPressStartRef.current;
     if (held < TAP_THRESHOLD_MS) {
-      setRecordLocked(true);
+      setTimeout(() => setRecordLocked(true), 50);
     } else {
       stopRecording();
     }
   };
+  const handleMicPointerCancel = () => {
+    if (!isRecording || recordLocked) return;
+    const held = micPressStartRef.current === 0
+      ? 0
+      : Date.now() - micPressStartRef.current;
+    if (held < TAP_THRESHOLD_MS) {
+      setTimeout(() => setRecordLocked(true), 50);
+    }
+  };
+
+  
+
+  // На мобильных браузерах pointercancel может прийти вместо pointerup
+  // при быстром тапе. Обрабатываем его отдельно — если запись ещё не
+  // зафиксирована (не locked), считаем это коротким тапом → фиксируем.
+
 
   const handleMicPointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
     if (isRecording) return;
     micPressStartRef.current = Date.now();
     micPressXRef.current = e.clientX;
+    micPressYRef.current = e.clientY;
     try {
       e.currentTarget.setPointerCapture(e.pointerId);
     } catch {
       // не критично — на некоторых браузерах может отсутствовать
     }
+    // preventDefault предотвращает генерацию ghost click и pointercancel
+    // на мобильных браузерах после быстрого tap.
+    e.preventDefault();
     startRecording();
   };
 
@@ -447,9 +500,20 @@ export const AdminChatView: React.FC = () => {
   // событие продолжает приходить, даже если палец уходит за пределы кнопки.
   const handleMicPointerMove = (e: React.PointerEvent<HTMLButtonElement>) => {
     if (!isRecording || recordLocked) return;
-    const delta = micPressXRef.current - e.clientX;
-    if (delta > SWIPE_CANCEL_PX) {
+
+    // Свайп влево — отменить запись (как раньше)
+    const deltaX = micPressXRef.current - e.clientX;
+    if (deltaX > SWIPE_CANCEL_PX) {
       handleCancelRecording();
+      return;
+    }
+
+    // Свайп вверх — заблокировать запись (как в Telegram):
+    // фиксируем запись в режиме с Паузой/Отменой/Отправить,
+    // чтобы не держать палец.
+    const deltaY = micPressYRef.current - e.clientY;
+    if (deltaY > SWIPE_CANCEL_PX) {
+      setRecordLocked(true);
     }
   };
 
@@ -711,6 +775,12 @@ export const AdminChatView: React.FC = () => {
     fetchThread(selectedOther.id);
   };
 
+  const filteredAdmins = allAdmins.filter((admin) => {
+  const q = adminSearchQuery.trim().toLowerCase();
+  if (!q) return true;
+  return admin.id.toLowerCase().includes(q) || admin.username.toLowerCase().includes(q);
+});
+
   // ---- Экран списка диалогов ----
   if (view === 'list') {
     return (
@@ -825,12 +895,26 @@ export const AdminChatView: React.FC = () => {
           </button>
         </div>
 
+        {allAdmins.length > 0 && (
+          <input
+            type="text"
+            value={adminSearchQuery}
+            onChange={(e) => setAdminSearchQuery(e.target.value)}
+            placeholder="Поиск по ID или имени..."
+            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-slate-100 text-sm outline-none focus:border-indigo-500 mb-3"
+          />
+        )}
+
         {allAdmins.length === 0 && (
           <p className="text-slate-600 text-xs text-center py-6">Других администраторов пока нет</p>
         )}
 
+        {allAdmins.length > 0 && filteredAdmins.length === 0 && (
+          <p className="text-slate-600 text-xs text-center py-6">Никого не найдено</p>
+        )}
+
         <div className="flex flex-col gap-2">
-          {allAdmins.map((admin) => (
+          {filteredAdmins.map((admin) => (
             <button
               key={admin.id}
               onClick={() => openThread(admin.id, admin.username, admin.admin_permissions, admin.is_main_admin)}
@@ -938,10 +1022,25 @@ export const AdminChatView: React.FC = () => {
                 )}
                 <div className="min-w-0 flex-1">
                   {m.attachment_type === 'image' && (
-                    <img src={m.attachment_data!} alt="вложение" className="rounded-lg max-w-full mb-1" />
+                    <div
+                      className="w-full h-48 rounded-lg mb-1 overflow-hidden cursor-pointer"
+                      onClick={(e) => { e.stopPropagation(); window.open(m.attachment_data!, '_blank'); }}
+                    >
+                      <img
+                        src={m.attachment_data!}
+                        alt="вложение"
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
                   )}
                   {m.attachment_type === 'video' && (
-                    <video src={m.attachment_data!} controls className="rounded-lg max-w-full mb-1" />
+                    <div className="rounded-lg mb-1 overflow-hidden" style={{ width: '100%', height: '192px' }}>
+                      <video
+                        src={m.attachment_data!}
+                        controls
+                        style={{ width: '100%', height: '192px', objectFit: 'cover', display: 'block' }}
+                      />
+                    </div>
                   )}
                   {m.attachment_type === 'audio' && (
                     <audio src={m.attachment_data!} controls className="max-w-full mb-1" />
@@ -1002,10 +1101,7 @@ export const AdminChatView: React.FC = () => {
             {EMOJI_LIST.map((emoji) => (
               <button
                 key={emoji}
-                onClick={() => {
-                  setInput((prev) => prev + emoji);
-                  setShowEmoji(false);
-                }}
+                onClick={() => setInput((prev) => prev + emoji)}
                 className="text-lg hover:scale-125 transition-transform"
               >
                 {emoji}
@@ -1041,7 +1137,7 @@ export const AdminChatView: React.FC = () => {
           <div className="shrink-0">
             {isRecording && (
               <p className="text-slate-500 text-[11px] text-center pb-1.5">
-                ← Проведите для отмены · отпустите для отправки
+                ↑ Вверх — блокировка · ← Влево — отмена · отпустите — отправить
               </p>
             )}
             <div className="flex items-center gap-2">
@@ -1062,6 +1158,7 @@ export const AdminChatView: React.FC = () => {
                     if (selectedOther) saveDraft(selectedOther.id, e.target.value);
                   }}
                   onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+                  onFocus={() => setShowEmoji(false)}
                   placeholder="Сообщение..."
                   disabled={isRecording}
                   className="flex-1 bg-transparent text-slate-100 text-sm outline-none min-w-0 py-2 disabled:opacity-50"
@@ -1110,8 +1207,9 @@ export const AdminChatView: React.FC = () => {
                 <button
                   onPointerDown={handleMicPointerDown}
                   onPointerUp={handleMicPointerUp}
-                  onPointerCancel={handleMicPointerUp}
+                  onPointerCancel={handleMicPointerCancel}
                   onPointerMove={handleMicPointerMove}
+                  onTouchStart={(e) => e.preventDefault()}
                   className={`rounded-full w-11 h-11 flex items-center justify-center shrink-0 select-none transition-colors ${
                     isRecording
                       ? 'bg-red-600 text-white text-xs font-mono'
@@ -1125,7 +1223,26 @@ export const AdminChatView: React.FC = () => {
           </div>
         )}
         {recordError && <p className="text-red-400 text-xs mt-1 shrink-0">{recordError}</p>}
-        {uploading && <p className="text-slate-500 text-xs mt-1 shrink-0">Загружаем файл...</p>}
+
+        {uploadPreview && (
+          <div className="relative mt-2 shrink-0 inline-block">
+            {uploadPreview.type === 'image' ? (
+              <img
+                src={uploadPreview.url}
+                alt="превью"
+                className="rounded-lg max-h-40 opacity-20"
+              />
+            ) : (
+              <video
+                src={uploadPreview.url}
+                className="rounded-lg max-h-40 opacity-20"
+              />
+            )}
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            </div>
+          </div>
+        )}
       </div>
     );
   }

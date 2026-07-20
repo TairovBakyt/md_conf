@@ -4,6 +4,32 @@ import { pool } from '../db';
 
 const router = Router();
 
+// Поиск участников по ID или имени — частичное совпадение, до 20 результатов.
+// Используется в ChatInbox.tsx, чтобы админ мог найти участника и написать
+// ему первым, даже если переписки ещё не было. Админы (is_admin) исключены
+// из результатов — чат предназначен для admin↔participant.
+router.get('/search', async (req: Request, res: Response) => {
+  const query = String(req.query.q || '').trim();
+  if (!query) {
+    return res.json([]);
+  }
+
+  try {
+    const result = await pool.query(
+      `SELECT id, username FROM users
+       WHERE (id ILIKE $1 OR username ILIKE $1)
+         AND (is_admin = false OR is_admin IS NULL)
+       ORDER BY username ASC
+       LIMIT 20`,
+      [`%${query}%`]
+    );
+    return res.json(result.rows);
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Ошибка поиска участников' });
+  }
+});
+
 router.get('/:id', async (req: Request, res: Response) => {
   const userId = req.params.id;
 

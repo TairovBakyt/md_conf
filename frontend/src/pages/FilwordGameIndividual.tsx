@@ -32,6 +32,7 @@ interface Cell {
 }
 
 const TIME_LIMIT = 90;
+const CELL_GAP_PX = 2; // должен совпадать с gap-[2px] у сетки ниже
 
 export const FilwordGameIndividual: React.FC = () => {
   const { user } = useUser();
@@ -50,6 +51,33 @@ export const FilwordGameIndividual: React.FC = () => {
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const autoSubmitRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Динамический размер ячейки: меряем реальную ширину контейнера сетки и
+  // делим на количество столбцов, чтобы буквы всегда были максимально
+  // крупными для доступной ширины экрана, а не фиксированным пикселем.
+  const gridContainerRef = useRef<HTMLDivElement | null>(null);
+  const [cellSize, setCellSize] = useState(20);
+
+  const gridLength = state.phase === 'playing' ? state.grid.length : 0;
+
+  useEffect(() => {
+    if (state.phase !== 'playing' || !gridContainerRef.current || gridLength === 0) return;
+
+    const el = gridContainerRef.current;
+
+    const recompute = () => {
+      const containerWidth = el.clientWidth;
+      const totalGaps = CELL_GAP_PX * (gridLength - 1);
+      const rawSize = (containerWidth - totalGaps) / gridLength;
+      setCellSize(Math.max(10, Math.floor(rawSize)));
+    };
+
+    recompute();
+
+    const observer = new ResizeObserver(recompute);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [state.phase, gridLength]);
 
   useEffect(() => {
     if (!user) {
@@ -427,10 +455,19 @@ export const FilwordGameIndividual: React.FC = () => {
           />
         </div>
 
-        <div className="bg-slate-900 rounded-xl p-1.5 mb-4 select-none" style={{ touchAction: 'none' }}>
+        <div
+          ref={gridContainerRef}
+          className="bg-slate-900 rounded-xl p-1.5 mb-4 select-none w-full"
+          style={{ touchAction: 'none' }}
+        >
           <div
-            className="grid gap-[1px] mx-auto"
-            style={{ gridTemplateColumns: `repeat(${state.grid.length}, 1fr)`, width: 'fit-content' }}
+            className="grid"
+            style={{
+              gridTemplateColumns: `repeat(${state.grid.length}, ${cellSize}px)`,
+              gap: `${CELL_GAP_PX}px`,
+              width: '100%',
+              justifyContent: 'center',
+            }}
           >
             {state.grid.map((row, rowIndex) =>
               row.split('').map((letter, colIndex) => {
@@ -457,7 +494,12 @@ export const FilwordGameIndividual: React.FC = () => {
                     onTouchStart={(e) => handleTouchStart(rowIndex, colIndex, e)}
                     onTouchMove={handleTouchMove}
                     onTouchEnd={() => handleTouchEnd(state.grid)}
-                    className={`w-5 h-5 sm:w-6 sm:h-6 lg:w-7 lg:h-7 flex items-center justify-center text-[10px] sm:text-[11px] lg:text-xs font-mono rounded-sm cursor-pointer transition-colors ${cellClasses}`}
+                    style={{
+                      width: `${cellSize}px`,
+                      height: `${cellSize}px`,
+                      fontSize: `${Math.max(9, Math.floor(cellSize * 0.5))}px`,
+                    }}
+                    className={`flex items-center justify-center font-mono rounded-sm cursor-pointer transition-colors ${cellClasses}`}
                   >
                     {letter}
                   </div>

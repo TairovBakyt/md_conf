@@ -263,7 +263,14 @@ export const AdminPanel: React.FC = () => {
       </motion.div>
 
       <div className="w-full max-w-md xl:max-w-6xl flex flex-col xl:flex-row gap-6 xl:items-start">
-        <div className="flex xl:hidden flex-col gap-4 w-full">
+        {/*
+          Мобильный порядок задаётся через order-*, десктопная раскладка
+          (xl:flex-row, три колонки: StatsPanel / контент+PrizeDonut / ActivityFeed)
+          не трогается — там order-* сброшен через xl:order-none.
+          Мобильный порядок (flex-col): контент вкладки → быстрая статистика →
+          призы по уровням → лента активности.
+        */}
+        <div className="flex xl:hidden flex-col gap-4 w-full order-2">
           <StatsPanel />
         </div>
 
@@ -271,7 +278,7 @@ export const AdminPanel: React.FC = () => {
           <StatsPanel />
         </div>
 
-        <div className="flex-1 flex flex-col items-center gap-6 min-w-0">
+        <div className="flex-1 flex flex-col items-center gap-6 min-w-0 order-1 xl:order-none">
           <AnimatePresence mode="wait">
             <motion.div
               key={tab}
@@ -294,10 +301,18 @@ export const AdminPanel: React.FC = () => {
             </motion.div>
           </AnimatePresence>
 
+          {/* Только десктоп — здесь PrizeDonut идёт сразу под контентом в средней колонке */}
+          <div className="hidden xl:block w-full">
+            <PrizeDonut />
+          </div>
+        </div>
+
+        {/* Только мобильный — отдельный блок между StatsPanel и ActivityFeed */}
+        <div className="flex xl:hidden flex-col gap-4 w-full order-3">
           <PrizeDonut />
         </div>
 
-        <div className="flex xl:hidden flex-col gap-4 w-full">
+        <div className="flex xl:hidden flex-col gap-4 w-full order-4">
           <ActivityFeed />
         </div>
 

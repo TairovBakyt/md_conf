@@ -93,6 +93,7 @@ export const ChatInbox: React.FC = () => {
   const [input, setInput] = useState('');
   const [showEmoji, setShowEmoji] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [uploadPreview, setUploadPreview] = useState<{ url: string; type: 'image' | 'video' } | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [recordLocked, setRecordLocked] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
@@ -123,12 +124,17 @@ export const ChatInbox: React.FC = () => {
   const longPressFiredRef = useRef(false);
   const micPressStartRef = useRef(0);
   const micPressXRef = useRef(0);
+  const micPressYRef = useRef(0);
   const recordCancelledRef = useRef(false);
   const SWIPE_CANCEL_PX = 80;
 
   // Защита от старых ответов (seq) и локальный буфер скрытых сообщений
   const fetchSeqRef = useRef(0);
   const locallyHiddenRef = useRef<Set<number>>(new Set());
+
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<{ id: string; username: string }[]>([]);
+  const [searching, setSearching] = useState(false);
 
   useEffect(() => {
     try {
@@ -174,6 +180,40 @@ export const ChatInbox: React.FC = () => {
     }
   };
 
+  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+const handleSearchChange = (value: string) => {
+  setSearchQuery(value);
+  if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    setSearchResults([]);
+    return;
+  }
+
+  searchTimeoutRef.current = setTimeout(async () => {
+    setSearching(true);
+    try {
+      const res = await fetch(`${API_URL}/api/user/search?q=${encodeURIComponent(trimmed)}`);
+      const data = await res.json();
+      if (res.ok) setSearchResults(data);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSearching(false);
+    }
+  }, 400);
+};
+
+// Открывает переписку с найденным участником, даже если сообщений
+// ещё не было — openChat корректно отработает на пустом треде.
+const handleStartNewChat = (result: { id: string; username: string }) => {
+  setSearchQuery('');
+  setSearchResults([]);
+  openChat({ userId: result.id, username: result.username, lastMessage: '', lastAt: new Date().toISOString(), unreadCount: 0 });
+};
+
   const openChat = async (item: InboxItem) => {
     setSelected(item);
     setInput(loadDraft(item.userId));
@@ -209,6 +249,18 @@ export const ChatInbox: React.FC = () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Останавливаем запись при размонтировании компонента (переключение чата,
+  // смена вкладки) — иначе микрофон продолжает работать в фоне.
+  useEffect(() => {
+    return () => {
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        recordCancelledRef.current = true;
+        mediaRecorderRef.current.stop();
+      }
+      if (recordingIntervalRef.current) clearInterval(recordingIntervalRef.current);
+    };
   }, []);
 
   // Автопрокрутка к последнему сообщению — только если пользователь и так
@@ -260,20 +312,23 @@ export const ChatInbox: React.FC = () => {
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    const type = file.type.startsWith('video') ? 'video' : 'image';
+    const previewUrl = URL.createObjectURL(file);
+    setUploadPreview({ url: previewUrl, type });
     setUploading(true);
     try {
       const base64 = await fileToBase64(file);
-      const type = file.type.startsWith('video') ? 'video' : 'image';
       await sendMessage(null, type, base64);
     } catch (err) {
       console.error(err);
     } finally {
       setUploading(false);
+      setUploadPreview(null);
+      URL.revokeObjectURL(previewUrl);
       if (fileInputRef.current) fileInputRef.current.value = '';
       if (cameraInputRef.current) cameraInputRef.current.value = '';
     }
   };
-
   const getSupportedMimeType = (): string => {
     const candidates = ['audio/webm', 'audio/mp4', 'audio/ogg', 'audio/wav'];
     for (const type of candidates) {
@@ -346,9 +401,12 @@ export const ChatInbox: React.FC = () => {
   // переходим в зафиксированный режим (короткий тап).
   const handleMicPointerUp = () => {
     if (!isRecording || recordLocked) return;
-    const held = Date.now() - micPressStartRef.current;
+    // Если micPressStartRef не был установлен (0) — считаем как короткий тап.
+    const held = micPressStartRef.current === 0
+      ? 0
+      : Date.now() - micPressStartRef.current;
     if (held < TAP_THRESHOLD_MS) {
-      setRecordLocked(true);
+      setTimeout(() => setRecordLocked(true), 50);
     } else {
       stopRecording();
     }
@@ -358,11 +416,15 @@ export const ChatInbox: React.FC = () => {
     if (isRecording) return;
     micPressStartRef.current = Date.now();
     micPressXRef.current = e.clientX;
+     micPressYRef.current = e.clientY;
     try {
       e.currentTarget.setPointerCapture(e.pointerId);
     } catch {
       // не критично — на некоторых браузерах может отсутствовать
     }
+    // preventDefault предотвращает генерацию ghost click и pointercancel
+    // на мобильных браузерах после быстрого tap.
+    e.preventDefault();
     startRecording();
   };
 
@@ -371,9 +433,20 @@ export const ChatInbox: React.FC = () => {
   // событие продолжает приходить, даже если палец уходит за пределы кнопки.
   const handleMicPointerMove = (e: React.PointerEvent<HTMLButtonElement>) => {
     if (!isRecording || recordLocked) return;
-    const delta = micPressXRef.current - e.clientX;
-    if (delta > SWIPE_CANCEL_PX) {
+
+    // Свайп влево — отменить запись (как раньше)
+    const deltaX = micPressXRef.current - e.clientX;
+    if (deltaX > SWIPE_CANCEL_PX) {
       handleCancelRecording();
+      return;
+    }
+
+    // Свайп вверх — заблокировать запись (как в Telegram):
+    // фиксируем запись в режиме с Паузой/Отменой/Отправить,
+    // чтобы не держать палец.
+    const deltaY = micPressYRef.current - e.clientY;
+    if (deltaY > SWIPE_CANCEL_PX) {
+      setRecordLocked(true);
     }
   };
 
@@ -708,10 +781,25 @@ export const ChatInbox: React.FC = () => {
                 )}
                 <div className="min-w-0 flex-1">
                   {m.attachment_type === 'image' && (
-                    <img src={m.attachment_data!} alt="вложение" className="rounded-lg max-w-full mb-1" />
+                    <div
+                      className="w-full h-48 rounded-lg mb-1 overflow-hidden cursor-pointer"
+                      onClick={(e) => { e.stopPropagation(); window.open(m.attachment_data!, '_blank'); }}
+                    >
+                      <img
+                        src={m.attachment_data!}
+                        alt="вложение"
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
                   )}
                   {m.attachment_type === 'video' && (
-                    <video src={m.attachment_data!} controls className="rounded-lg max-w-full mb-1" />
+                    <div className="rounded-lg mb-1 overflow-hidden" style={{ width: '100%', height: '192px' }}>
+                      <video
+                        src={m.attachment_data!}
+                        controls
+                        style={{ width: '100%', height: '192px', objectFit: 'cover', display: 'block' }}
+                      />
+                    </div>
                   )}
                   {m.attachment_type === 'audio' && (
                     <audio src={m.attachment_data!} controls className="max-w-full mb-1" />
@@ -774,10 +862,7 @@ export const ChatInbox: React.FC = () => {
             {EMOJI_LIST.map((emoji) => (
               <button
                 key={emoji}
-                onClick={() => {
-                  setInput((prev) => prev + emoji);
-                  setShowEmoji(false);
-                }}
+                onClick={() => setInput((prev) => prev + emoji)}
                 className="text-lg hover:scale-125 transition-transform"
               >
                 {emoji}
@@ -813,7 +898,7 @@ export const ChatInbox: React.FC = () => {
           <div className="shrink-0">
             {isRecording && (
               <p className="text-slate-500 text-[11px] text-center pb-1.5">
-                ← Проведите для отмены · отпустите для отправки
+                ↑ Вверх — блокировка · ← Влево — отмена · отпустите — отправить
               </p>
             )}
             <div className="flex items-center gap-2">
@@ -834,6 +919,7 @@ export const ChatInbox: React.FC = () => {
                     if (selected) saveDraft(selected.userId, e.target.value);
                   }}
                   onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+                  onFocus={() => setShowEmoji(false)}
                   placeholder="Сообщение..."
                   disabled={isRecording}
                   className="flex-1 bg-transparent text-slate-100 text-sm outline-none min-w-0 py-2 disabled:opacity-50"
@@ -884,6 +970,7 @@ export const ChatInbox: React.FC = () => {
                   onPointerUp={handleMicPointerUp}
                   onPointerCancel={handleMicPointerUp}
                   onPointerMove={handleMicPointerMove}
+                  onTouchStart={(e) => e.preventDefault()}
                   className={`rounded-full w-11 h-11 flex items-center justify-center shrink-0 select-none transition-colors ${
                     isRecording
                       ? 'bg-red-600 text-white text-xs font-mono'
@@ -897,13 +984,59 @@ export const ChatInbox: React.FC = () => {
           </div>
         )}
         {recordError && <p className="text-red-400 text-xs mt-1 shrink-0">{recordError}</p>}
-        {uploading && <p className="text-slate-500 text-xs mt-1 shrink-0">Загружаем файл...</p>}
+
+        {uploadPreview && (
+          <div className="relative mt-2 shrink-0 inline-block">
+            {uploadPreview.type === 'image' ? (
+              <img
+                src={uploadPreview.url}
+                alt="превью"
+                className="rounded-lg max-h-40 opacity-20"
+              />
+            ) : (
+              <video
+                src={uploadPreview.url}
+                className="rounded-lg max-h-40 opacity-20"
+              />
+            )}
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            </div>
+          </div>
+        )}
       </div>
     );
   }
 
   return (
     <div className="w-full max-w-xl mx-auto bg-slate-950 rounded-2xl p-5">
+      <div className="mb-4">
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={(e) => handleSearchChange(e.target.value)}
+          placeholder="Найти участника по ID или имени — написать первым"
+          className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-slate-100 text-sm outline-none focus:border-indigo-500"
+        />
+        {searching && <p className="text-slate-600 text-[10px] mt-1">Ищем...</p>}
+        {searchResults.length > 0 && (
+          <div className="flex flex-col gap-1.5 mt-2">
+            {searchResults.map((r) => (
+              <button
+                key={r.id}
+                onClick={() => handleStartNewChat(r)}
+                className="w-full text-left bg-slate-800 hover:bg-slate-700 rounded-lg px-3 py-2 flex items-center justify-between transition-colors"
+              >
+                <span className="text-slate-100 text-sm">{r.username}</span>
+                <span className="text-slate-500 text-xs font-mono">{r.id}</span>
+              </button>
+            ))}
+          </div>
+        )}
+        {searchQuery.trim() && !searching && searchResults.length === 0 && (
+          <p className="text-slate-600 text-xs mt-2">Никого не найдено</p>
+        )}
+      </div>
       <div className="flex items-center justify-between mb-4">
         <span className="text-sm font-medium text-indigo-400">
           {listSelectionMode ? `Выбрано: ${selectedThreadIds.size}` : 'Сообщения от участников'}

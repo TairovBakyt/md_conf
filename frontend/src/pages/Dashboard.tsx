@@ -184,9 +184,12 @@ export const Dashboard: React.FC = () => {
       </div>
 
       <div className="w-full max-w-md xl:max-w-6xl flex flex-col xl:flex-row gap-6 xl:items-start">
-        <div className="flex xl:hidden flex-col gap-4 w-full">
-          <LiveLeaderboard />
-        </div>
+        {/*
+          Мобильный блок "Топ участников" отсюда убран — на телефоне он
+          теперь рендерится ниже, сразу после кнопки "Филворд" (см. внутри
+          средней колонки). Десктопная левая колонка (ниже) не менялась —
+          там LiveLeaderboard остаётся в прежнем месте, наверху.
+        */}
 
         <div className="hidden xl:flex flex-col gap-6 w-[280px] shrink-0">
         <LiveLeaderboard />
@@ -277,6 +280,13 @@ export const Dashboard: React.FC = () => {
                 🔒 Филворд «Word Researcher» — скоро откроется
               </div>
             )}
+
+            {/* Топ участников — только на телефоне, сразу после кнопки Филворд.
+                На десктопе этот блок не дублируется: там LiveLeaderboard уже
+                стоит в левой боковой колонке. */}
+            <div className="xl:hidden w-full mt-3">
+              <LiveLeaderboard />
+            </div>
 
             {profile.achievements && profile.achievements.length > 0 && (
               <div className="w-full mt-6">

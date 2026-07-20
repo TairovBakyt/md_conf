@@ -120,6 +120,45 @@ router.post('/mark-read', async (req: Request, res: Response) => {
   }
 });
 
+// Непрочитанные сообщения ОТ АДМИНА для конкретного участника — используется
+// для бейджа-уведомления на кнопке "Написать администратору" в HelpBot,
+// когда сам чат ещё свёрнут. Зеркально симметрично /admin/inbox, только
+// в обратную сторону (sender = 'admin' вместо 'participant').
+router.get('/unread-count/:userId', async (req: Request, res: Response) => {
+  const { userId } = req.params;
+  try {
+    const result = await pool.query(
+      `SELECT COUNT(*) AS unread_count
+       FROM chat_messages
+       WHERE user_id = $1 AND sender = 'admin' AND is_read = false
+         AND (hidden_from_participant = false OR hidden_from_participant IS NULL)`,
+      [userId]
+    );
+    return res.json({ unreadCount: Number(result.rows[0].unread_count) });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Ошибка получения количества непрочитанных' });
+  }
+});
+
+// Отмечает сообщения АДМИНА как прочитанные участником — вызывается при
+// открытии чата в HelpBot, зеркально /mark-read (который админ вызывает
+// при открытии треда участника).
+router.post('/mark-read-participant', async (req: Request, res: Response) => {
+  const { userId } = req.body;
+
+  try {
+    await pool.query(
+      `UPDATE chat_messages SET is_read = true WHERE user_id = $1 AND sender = 'admin'`,
+      [userId]
+    );
+    return res.json({ success: true });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Ошибка обновления статуса' });
+  }
+});
+
 router.delete('/message/:id', async (req: Request, res: Response) => {
   const { id } = req.params;
   try {

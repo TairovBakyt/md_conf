@@ -23,7 +23,7 @@ export const ADMIN_TAB_DEFS: AdminTabDef[] = [
   { id: 'achievements', label: 'Достижения', icon: '🏆' },
   { id: 'games', label: 'Игры', icon: '🎮' },
   { id: 'admins', label: 'Администраторы', icon: '👥' },
-  { id: 'docs', label: 'Документация', icon: '📖' },
+  { id: 'docs', label: 'Info', icon: '📖' },
   { id: 'chat', label: 'Сообщения', icon: '💬' },
   { id: 'adminChat', label: 'Чат админов', icon: '🗨️' },
   { id: 'recovery', label: 'Восстановление доступа', icon: '🔑' },
