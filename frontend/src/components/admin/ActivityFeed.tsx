@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { API_URL } from '../../config';
+import { useSmartPolling } from '../../hooks/useSmartPolling';
 
 interface ActivityItem {
   type: 'redemption' | 'achievement';
@@ -21,22 +22,21 @@ function timeAgo(dateStr: string): string {
 export const ActivityFeed: React.FC = () => {
   const [items, setItems] = useState<ActivityItem[]>([]);
 
-  useEffect(() => {
-    const fetchActivity = async () => {
-      try {
-        const res = await fetch(`${API_URL}/api/admin/recent-activity`);
-        const data = await res.json();
-        if (res.ok) setItems(data);
-      } catch (err) {
-        console.error(err);
-      }
-    };
+  const fetchActivity = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/admin/recent-activity`);
+      const data = await res.json();
+      if (res.ok) setItems(data);
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
+  useEffect(() => {
     fetchActivity();
-    const interval = setInterval(fetchActivity, 8000);
-    return () => clearInterval(interval);
   }, []);
 
+  useSmartPolling(fetchActivity, 12000);
   const chartPoints = items
     .slice()
     .reverse()

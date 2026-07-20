@@ -1,11 +1,18 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Html5Qrcode, Html5QrcodeScannerState } from 'html5-qrcode';
+import type { Html5Qrcode } from 'html5-qrcode';
 import { QRCodeSVG } from 'qrcode.react';
 import { useUser } from '../../authorization/UserContext';
 import { API_URL } from '../../config';
+import { useSmartPolling } from '../../hooks/useSmartPolling';
 
 const SCANNER_ELEMENT_ID = 'prize-qr-reader';
 const LONG_PRESS_MS = 550;
+
+// html5-qrcode — тяжёлая библиотека, нужна только в момент реального
+// запуска камеры. Импортируется динамически (см. useEffect ниже), а не
+// статически вверху файла — типы через `import type` в рантайм-бандл
+// не попадают.
+type Html5QrcodeModule = typeof import('html5-qrcode');
 
 const MANUAL_STATION_TITLES: Record<number, string> = {
   1: 'Подписка на соцсети',
@@ -114,8 +121,8 @@ export const PrizeBoothView: React.FC = () => {
   const [bulkRedeeming, setBulkRedeeming] = useState(false);
 
   const scannerRef = useRef<Html5Qrcode | null>(null);
+  const html5QrcodeModuleRef = useRef<Html5QrcodeModule | null>(null);
   const isProcessingRef = useRef(false);
-  const incomingPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressFiredRef = useRef(false);
 
@@ -140,67 +147,71 @@ export const PrizeBoothView: React.FC = () => {
   }, [mode, profile, stations, prizes, redeemedPrizes, quizPoints, filwordPoints, deductedTotal, errorMsg, successMsg]);
 
   // Тихий фоновый поллинг — участник может сам купить приз через /prizes,
-  // пока админ смотрит его профиль здесь. Обновляем баланс/призы каждые
-  // 5 сек, не трогая mode/loading, чтобы не сбрасывать текущий экран.
-  useEffect(() => {
-    if (mode !== 'found' || !profile) return;
-    const interval = setInterval(() => {
-      refetchProfileAndHistory(profile.id);
-    }, 3000);
-    return () => clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, profile?.id]);
+  // пока админ смотрит его профиль здесь. Обновляем баланс/призы, не
+  // трогая mode/loading, чтобы не сбрасывать текущий экран.
+  useSmartPolling(
+    () => {
+      if (profile) refetchProfileAndHistory(profile.id);
+    },
+    3000,
+    mode === 'found' && !!profile
+  );
 
+  // Камера + html5-qrcode подгружаются динамически только здесь, в момент
+  // реального запуска сканирования (cameraStarted === true) — до этого
+  // библиотека вообще не скачивается браузером.
   useEffect(() => {
     if (mode !== 'scanning' || !cameraStarted) return;
     isProcessingRef.current = false;
     setCameraError('');
 
-    const scanner = new Html5Qrcode(SCANNER_ELEMENT_ID);
-    scannerRef.current = scanner;
+    let cancelled = false;
 
-    scanner
-      .start(
-        { facingMode: 'environment' },
-        { fps: 10, qrbox: 220 },
-        (decodedText) => handleScanSuccess(decodedText),
-        () => {}
-      )
-      .catch((err) => {
-        console.error(err);
-        setCameraError('Не удалось получить доступ к камере');
-      });
+    import('html5-qrcode').then(({ Html5Qrcode, Html5QrcodeScannerState }) => {
+      if (cancelled) return;
+      html5QrcodeModuleRef.current = { Html5Qrcode, Html5QrcodeScannerState } as Html5QrcodeModule;
+
+      const scanner = new Html5Qrcode(SCANNER_ELEMENT_ID);
+      scannerRef.current = scanner;
+
+      scanner
+        .start(
+          { facingMode: 'environment' },
+          { fps: 10, qrbox: 220 },
+          (decodedText) => handleScanSuccess(decodedText),
+          () => {}
+        )
+        .catch((err) => {
+          console.error(err);
+          setCameraError('Не удалось получить доступ к камере');
+        });
+    });
 
     return () => {
+      cancelled = true;
       const s = scannerRef.current;
-      if (s && s.getState() === Html5QrcodeScannerState.SCANNING) {
+      const mod = html5QrcodeModuleRef.current;
+      if (s && mod && s.getState() === mod.Html5QrcodeScannerState.SCANNING) {
         s.stop().catch(() => {});
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, cameraStarted]);
 
-  useEffect(() => {
-    if (mode !== 'scanning' || !user) return;
-
-    const poll = async () => {
-      try {
-        const res = await fetch(`${API_URL}/api/admin/scan-requests/${user.id}`);
-        const data = await res.json();
-        if (res.ok && data.participantId) {
-          handleScanSuccess(data.participantId);
-        }
-      } catch (err) {
-        console.error(err);
+  const pollIncomingScan = async () => {
+    if (!user) return;
+    try {
+      const res = await fetch(`${API_URL}/api/admin/scan-requests/${user.id}`);
+      const data = await res.json();
+      if (res.ok && data.participantId) {
+        handleScanSuccess(data.participantId);
       }
-    };
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
-    incomingPollRef.current = setInterval(poll, 2000);
-    return () => {
-      if (incomingPollRef.current) clearInterval(incomingPollRef.current);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, user]);
+  useSmartPolling(pollIncomingScan, 2000, mode === 'scanning' && !!user);
 
   const refetchProfileAndHistory = async (userId: string) => {
     try {
@@ -235,12 +246,9 @@ export const PrizeBoothView: React.FC = () => {
     if (isProcessingRef.current) return;
     isProcessingRef.current = true;
 
-    if (incomingPollRef.current) {
-      clearInterval(incomingPollRef.current);
-    }
-
     const s = scannerRef.current;
-    if (s && s.getState() === Html5QrcodeScannerState.SCANNING) {
+    const mod = html5QrcodeModuleRef.current;
+    if (s && mod && s.getState() === mod.Html5QrcodeScannerState.SCANNING) {
       try {
         await s.stop();
       } catch (e) {
@@ -290,7 +298,8 @@ export const PrizeBoothView: React.FC = () => {
     if (!trimmedId) return;
 
     const s = scannerRef.current;
-    if (s && s.getState() === Html5QrcodeScannerState.SCANNING) {
+    const mod = html5QrcodeModuleRef.current;
+    if (s && mod && s.getState() === mod.Html5QrcodeScannerState.SCANNING) {
       try {
         await s.stop();
       } catch (e) {}

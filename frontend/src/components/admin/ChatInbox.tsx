@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { useSmartPolling } from '../../hooks/useSmartPolling';
 import { API_URL } from '../../config';
 
 const LONG_PRESS_MS = 550;
@@ -114,7 +115,6 @@ export const ChatInbox: React.FC = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const shouldAutoScrollRef = useRef(true);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -160,9 +160,8 @@ export const ChatInbox: React.FC = () => {
 
   useEffect(() => {
     fetchInbox();
-    const interval = setInterval(fetchInbox, 5000);
-    return () => clearInterval(interval);
   }, []);
+  useSmartPolling(fetchInbox, 8000);
 
   // ИЗМЕНЕНО ПО ПЛАНУ КЛОДА: Запрашиваем админскую ветку без скрытых сообщений
   const fetchThread = async (userId: string) => {
@@ -232,24 +231,25 @@ const handleStartNewChat = (result: { id: string; username: string }) => {
     } catch (err) {
       console.error(err);
     }
-
-    if (pollRef.current) clearInterval(pollRef.current);
-    pollRef.current = setInterval(() => fetchThread(item.userId), 3000);
   };
 
   // При восстановлении открытого диалога после F5 — сразу подтягиваем
-  // сообщения, черновик и запускаем поллинг заново.
+  // сообщения и черновик; сам поллинг треда запускается ниже через
+  // useSmartPolling, привязанный к selected.
   useEffect(() => {
     if (!selected) return;
     setInput(loadDraft(selected.userId));
     fetchThread(selected.userId);
-    if (pollRef.current) clearInterval(pollRef.current);
-    pollRef.current = setInterval(() => fetchThread(selected.userId), 3000);
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useSmartPolling(
+    () => {
+      if (selected) fetchThread(selected.userId);
+    },
+    3000,
+    !!selected
+  );
 
   // Останавливаем запись при размонтировании компонента (переключение чата,
   // смена вкладки) — иначе микрофон продолжает работать в фоне.
@@ -541,7 +541,6 @@ const handleStartNewChat = (result: { id: string; username: string }) => {
     try {
       await fetch(`${API_URL}/api/chat/thread/${selected.userId}`, { method: 'DELETE' });
       setSelected(null);
-      if (pollRef.current) clearInterval(pollRef.current);
       fetchInbox();
     } catch (err) {
       console.error(err);
@@ -711,7 +710,7 @@ const handleStartNewChat = (result: { id: string; username: string }) => {
             <button onClick={handleDeleteThread} className="text-red-400 text-xs hover:text-red-300">
               Удалить чат
             </button>
-            <button onClick={() => { setSelected(null); if (pollRef.current) clearInterval(pollRef.current); }} className="text-slate-500 text-xs hover:text-slate-300">
+            <button onClick={() => setSelected(null)} className="text-slate-500 text-xs hover:text-slate-300">
               ← Назад
             </button>
           </div>

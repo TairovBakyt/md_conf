@@ -1,12 +1,18 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Html5Qrcode, Html5QrcodeScannerState } from 'html5-qrcode';
+import type { Html5Qrcode } from 'html5-qrcode';
 import { useUser } from '../authorization/UserContext';
 import { API_URL } from '../config';
 
 const SCANNER_ELEMENT_ID = 'participant-qr-reader';
 
 type ScreenState = 'scanning' | 'need-name' | 'connecting' | 'sending' | 'success' | 'error';
+
+// html5-qrcode — тяжёлая библиотека, нужна только когда резервный путь
+// через встроенную камеру реально запускается. Импортируем динамически,
+// а не статически вверху файла — типы через `import type` в рантайм-бандл
+// не попадают.
+type Html5QrcodeModule = typeof import('html5-qrcode');
 
 function extractAdminId(raw: string): string | null {
   try {
@@ -30,6 +36,7 @@ export const ScanAdmin: React.FC = () => {
   const [cameraError, setCameraError] = useState('');
 
   const scannerRef = useRef<Html5Qrcode | null>(null);
+  const html5QrcodeModuleRef = useRef<Html5QrcodeModule | null>(null);
   const isProcessingRef = useRef(false);
 
   // Если ID админа уже пришёл прямо в ссылке (человек открыл QR родной камерой) —
@@ -44,7 +51,8 @@ export const ScanAdmin: React.FC = () => {
   }, []);
 
   // Резервный путь: человек уже открыл сайт и жмёт "Сканировать" —
-  // камера работает внутри приложения, как раньше
+  // камера работает внутри приложения, как раньше. html5-qrcode
+  // подгружается динамически только в этот момент, а не заранее.
   useEffect(() => {
     if (screen !== 'scanning' || adminId) return;
 
@@ -52,38 +60,44 @@ export const ScanAdmin: React.FC = () => {
     isProcessingRef.current = false;
     setCameraError('');
 
-    const scanner = new Html5Qrcode(SCANNER_ELEMENT_ID);
-    scannerRef.current = scanner;
+    import('html5-qrcode').then(({ Html5Qrcode, Html5QrcodeScannerState }) => {
+      if (cancelled) return;
+      html5QrcodeModuleRef.current = { Html5Qrcode, Html5QrcodeScannerState } as Html5QrcodeModule;
 
-    scanner
-      .start(
-        { facingMode: 'environment' },
-        { fps: 10, qrbox: 220 },
-        (decodedText) => {
-          if (!cancelled) handleScanSuccess(decodedText);
-        },
-        () => {
-          // ошибки отдельных кадров игнорируем — камера сканирует непрерывно
-        }
-      )
-      .then(() => {
-        // Если cleanup успел сработать раньше, чем камера реально запустилась —
-        // сразу останавливаем этот "лишний" инстанс
-        if (cancelled) {
-          scanner.stop().then(() => scanner.clear()).catch(() => {});
-        }
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          console.error(err);
-          setCameraError('Не удалось получить доступ к камере');
-        }
-      });
+      const scanner = new Html5Qrcode(SCANNER_ELEMENT_ID);
+      scannerRef.current = scanner;
+
+      scanner
+        .start(
+          { facingMode: 'environment' },
+          { fps: 10, qrbox: 220 },
+          (decodedText) => {
+            if (!cancelled) handleScanSuccess(decodedText);
+          },
+          () => {
+            // ошибки отдельных кадров игнорируем — камера сканирует непрерывно
+          }
+        )
+        .then(() => {
+          // Если cleanup успел сработать раньше, чем камера реально запустилась —
+          // сразу останавливаем этот "лишний" инстанс
+          if (cancelled) {
+            scanner.stop().then(() => scanner.clear()).catch(() => {});
+          }
+        })
+        .catch((err) => {
+          if (!cancelled) {
+            console.error(err);
+            setCameraError('Не удалось получить доступ к камере');
+          }
+        });
+    });
 
     return () => {
       cancelled = true;
       const s = scannerRef.current;
-      if (s && s.getState() === Html5QrcodeScannerState.SCANNING) {
+      const mod = html5QrcodeModuleRef.current;
+      if (s && mod && s.getState() === mod.Html5QrcodeScannerState.SCANNING) {
         s.stop().then(() => s.clear()).catch(() => {});
       }
     };
@@ -106,7 +120,8 @@ export const ScanAdmin: React.FC = () => {
     if (!id) return;
 
     const s = scannerRef.current;
-    if (s && s.getState() === Html5QrcodeScannerState.SCANNING) {
+    const mod = html5QrcodeModuleRef.current;
+    if (s && mod && s.getState() === mod.Html5QrcodeScannerState.SCANNING) {
       s.stop().catch(() => {});
     }
 

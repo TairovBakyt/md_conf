@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { API_URL } from '../../config';
+import { useSmartPolling } from '../../hooks/useSmartPolling';
 
 interface Redemption {
   id: number;
@@ -31,10 +32,9 @@ export const RedemptionsView: React.FC = () => {
 
   useEffect(() => {
     fetchRedemptions(true);
-    const interval = setInterval(() => fetchRedemptions(false), 5000);
-    return () => clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useSmartPolling(() => fetchRedemptions(false), 8000); 
 
   return (
     <div className="w-full max-w-2xl mx-auto bg-slate-950 rounded-2xl p-5">

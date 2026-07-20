@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { API_URL } from '../../config';
+import { useSmartPolling } from '../../hooks/useSmartPolling';
 
 interface Stats {
   totalParticipants: number;
@@ -19,31 +20,40 @@ export const StatsPanel: React.FC = () => {
   const [sosCount, setSosCount] = useState(0);
   const [clearingSos, setClearingSos] = useState(false);
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const [statsRes, leaderboardRes, sosRes] = await Promise.all([
-          fetch(`${API_URL}/api/admin/stats`),
-          fetch(`${API_URL}/api/admin/leaderboard`),
-          fetch(`${API_URL}/api/admin/sos-count`),
-        ]);
-        const statsData = await statsRes.json();
-        const leaderboardData = await leaderboardRes.json();
-        const sosData = await sosRes.json();
-        if (statsRes.ok) setStats(statsData);
-        if (leaderboardRes.ok) setLeaderboard(leaderboardData);
-        if (sosRes.ok) setSosCount(sosData.count ?? 0);
-      } catch (err) {
-        console.error(err);
-      }
-    };
+  const fetchStatsAndLeaderboard = async () => {
+    try {
+      const [statsRes, leaderboardRes] = await Promise.all([
+        fetch(`${API_URL}/api/admin/stats`),
+        fetch(`${API_URL}/api/admin/leaderboard`),
+      ]);
+      const statsData = await statsRes.json();
+      const leaderboardData = await leaderboardRes.json();
+      if (statsRes.ok) setStats(statsData);
+      if (leaderboardRes.ok) setLeaderboard(leaderboardData);
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
-    fetchData();
-    // SOS проверяем чаще остального (5 сек), чтобы админ увидел сигнал
-    // о помощи максимально быстро, не дожидаясь общего 12-секундного цикла.
-    const interval = setInterval(fetchData, 5000);
-    return () => clearInterval(interval);
+  const fetchSos = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/admin/sos-count`);
+      const data = await res.json();
+      if (res.ok) setSosCount(data.count ?? 0);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  useEffect(() => {
+    fetchStatsAndLeaderboard();
+    fetchSos();
   }, []);
+
+  // SOS проверяем чаще остального (5 сек), чтобы админ увидел сигнал
+  // о помощи максимально быстро, не дожидаясь общего 12-секундного цикла.
+  useSmartPolling(fetchSos, 5000);
+  useSmartPolling(fetchStatsAndLeaderboard, 12000);
 
   const handleClearSos = async () => {
     setClearingSos(true);

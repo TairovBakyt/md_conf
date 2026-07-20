@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useUser } from '../../authorization/UserContext';
 import { API_URL } from '../../config';
+import { useSmartPolling } from '../../hooks/useSmartPolling';
 
 interface SearchResult {
   id: string;
@@ -174,36 +175,34 @@ export const AdminRecoveryView: React.FC = () => {
     }
   };
 
-  // Безопасный фоновый поллинг данных раз в 3 секунды без бесконечного рендеринга
+ // Сразу загружаем данные один раз при смене вкладки
   useEffect(() => {
-    // 1. Сразу загружаем данные один раз при смене вкладки
     if (subTab === 'fullList') {
       fetchFullList();
     }
-
-    // 2. Устанавливаем интервал, который будет тикать каждые 3 секунды
-    const interval = setInterval(() => {
-      if (subTab === 'fullList') {
-        // Запрашиваем полный список в фоне
-        fetch(`${API_URL}/api/admin/all-participants`)
-          .then((res) => res.json())
-          .then((data) => setFullList(data))
-          .catch((err) => console.error(err));
-      }
-      
-      if (subTab === 'search' && query.trim()) {
-        // Запрашиваем результаты поиска в фоне, если вбит текст
-        fetch(`${API_URL}/api/admin/search-users?query=${encodeURIComponent(query.trim())}`)
-          .then((res) => res.json())
-          .then((data) => setResults(data))
-          .catch((err) => console.error(err));
-      }
-    }, 3000);
-
-    // Очищаем таймер при переключении вкладок или уходе со страницы
-    return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [subTab]); // Следим ТОЛЬКО за изменением вкладки, на изменение query больше не реагируем бесконечно
+  }, [subTab]);
+
+  // Фоновый поллинг раз в 3 секунды — колбэк сам решает, что обновлять,
+  // в зависимости от текущей под-вкладки/строки поиска, без мигания
+  // интерфейса (не трогает searching/fullListLoading флаги).
+  const pollRecoveryData = () => {
+    if (subTab === 'fullList') {
+      fetch(`${API_URL}/api/admin/all-participants`)
+        .then((res) => res.json())
+        .then((data) => setFullList(data))
+        .catch((err) => console.error(err));
+    }
+
+    if (subTab === 'search' && query.trim()) {
+      fetch(`${API_URL}/api/admin/search-users?query=${encodeURIComponent(query.trim())}`)
+        .then((res) => res.json())
+        .then((data) => setResults(data))
+        .catch((err) => console.error(err));
+    }
+  };
+
+  useSmartPolling(pollRecoveryData, 3000);
 
   const filteredFullList = fullList.filter(
     (p) =>

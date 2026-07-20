@@ -1,22 +1,27 @@
-import React, { useEffect, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useSmartPolling } from '../hooks/useSmartPolling';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useUser } from '../authorization/UserContext';
-import { ActivityFeed } from '../components/admin/ActivityFeed';
-import { ScanView } from '../components/admin/ScanView';
-import { RedemptionsView } from '../components/admin/RedemptionsView';
-import { PrizeBoothView } from '../components/admin/PrizeBoothView';
-import { AchievementsView } from '../components/admin/AchievementsView';
-import { GamesView } from '../components/admin/GamesView';
-import { AdminsView } from '../components/admin/AdminsView';
-import { DocsView } from '../components/admin/DocsView';
 import { StatsPanel } from '../components/admin/StatsPanel';
 import { PrizeDonut } from '../components/admin/PrizeDonut';
-import { ChatInbox } from '../components/admin/ChatInbox';
-import { AdminChatView } from '../components/admin/AdminChatView';
-import { AdminRecoveryView } from '../components/admin/AdminRecoveryView';
 import { API_URL } from '../config';
 import { ADMIN_TAB_DEFS, isTabAllowed, getAccessLabel, type AdminTabId } from '../adminTabs';
+
+// Ленивая загрузка вкладок — админ скачивает код только той вкладки,
+// которую реально открыл, а не все 10 сразу (ScanView, ChatInbox,
+// AdminChatView и т.д. — самые тяжёлые из-за html5-qrcode/framer-motion).
+const ActivityFeed = lazy(() => import('../components/admin/ActivityFeed').then((m) => ({ default: m.ActivityFeed })));
+const ScanView = lazy(() => import('../components/admin/ScanView').then((m) => ({ default: m.ScanView })));
+const RedemptionsView = lazy(() => import('../components/admin/RedemptionsView').then((m) => ({ default: m.RedemptionsView })));
+const PrizeBoothView = lazy(() => import('../components/admin/PrizeBoothView').then((m) => ({ default: m.PrizeBoothView })));
+const AchievementsView = lazy(() => import('../components/admin/AchievementsView').then((m) => ({ default: m.AchievementsView })));
+const GamesView = lazy(() => import('../components/admin/GamesView').then((m) => ({ default: m.GamesView })));
+const AdminsView = lazy(() => import('../components/admin/AdminsView').then((m) => ({ default: m.AdminsView })));
+const DocsView = lazy(() => import('../components/admin/DocsView').then((m) => ({ default: m.DocsView })));
+const ChatInbox = lazy(() => import('../components/admin/ChatInbox').then((m) => ({ default: m.ChatInbox })));
+const AdminChatView = lazy(() => import('../components/admin/AdminChatView').then((m) => ({ default: m.AdminChatView })));
+const AdminRecoveryView = lazy(() => import('../components/admin/AdminRecoveryView').then((m) => ({ default: m.AdminRecoveryView })));
 
 const TAB_STORAGE_KEY = 'admin_active_tab';
 
@@ -46,6 +51,17 @@ function permissionsEqual(a: AdminTabId[] | null | undefined, b: AdminTabId[] | 
   if (normA.length !== normB.length) return false;
   const setB = new Set(normB);
   return normA.every((id) => setB.has(id));
+}
+
+// Небольшой инлайн-лоадер, показывается только на время подгрузки кода
+// самой вкладки (обычно доли секунды на нормальной сети) — не путать с
+// загрузкой данных внутри самих вкладок, у них свои спиннеры.
+function TabLoader() {
+  return (
+    <div className="w-full flex items-center justify-center py-12">
+      <span className="text-slate-500 text-sm">Загружаем вкладку...</span>
+    </div>
+  );
 }
 
 export const AdminPanel: React.FC = () => {
@@ -89,69 +105,64 @@ export const AdminPanel: React.FC = () => {
   // (2) полный доступ сузили до частичного или (3) наоборот расширили —
   // обновляем локальные permissions; если текущая открытая вкладка
   // перестала быть разрешена, переключаемся на первую доступную.
-  useEffect(() => {
+  const checkOwnStatus = async () => {
     if (!user) return;
+    try {
+      const res = await fetch(`${API_URL}/api/user/${user.id}`);
+      const data = await res.json();
+      if (!res.ok) return;
 
-    const checkOwnStatus = async () => {
-      try {
-        const res = await fetch(`${API_URL}/api/user/${user.id}`);
-        const data = await res.json();
-        if (!res.ok) return;
-
-        if (!data.is_admin) {
-          setUser({ ...user, is_admin: false, admin_permissions: null });
-          navigate('/dashboard');
-          return;
-        }
-
-        const newPermissions: AdminTabId[] | null = data.admin_permissions ?? null;
-        if (!permissionsEqual(user.admin_permissions ?? null, newPermissions)) {
-          setUser({ ...user, admin_permissions: newPermissions });
-          if (!isTabAllowed(newPermissions, tab)) {
-            const firstAllowed = ADMIN_TAB_DEFS.find((t) => isTabAllowed(newPermissions, t.id));
-            setTab(firstAllowed?.id ?? 'scan');
-          }
-        }
-      } catch (err) {
-        console.error(err);
+      if (!data.is_admin) {
+        setUser({ ...user, is_admin: false, admin_permissions: null });
+        navigate('/dashboard');
+        return;
       }
-    };
 
-    const interval = setInterval(checkOwnStatus, 5000);
-    return () => clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, tab]);
+      const newPermissions: AdminTabId[] | null = data.admin_permissions ?? null;
+      if (!permissionsEqual(user.admin_permissions ?? null, newPermissions)) {
+        setUser({ ...user, admin_permissions: newPermissions });
+        if (!isTabAllowed(newPermissions, tab)) {
+          const firstAllowed = ADMIN_TAB_DEFS.find((t) => isTabAllowed(newPermissions, t.id));
+          setTab(firstAllowed?.id ?? 'scan');
+        }
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  useSmartPolling(checkOwnStatus, 5000, !!user);
 
   // Тихий фоновый поллинг непрочитанных — считает сумму unreadCount
   // по обоим чатам и показывает цифрой на кнопках вкладок.
-  useEffect(() => {
+  const fetchUnreadCounts = async () => {
     if (!user) return;
+    try {
+      const [chatRes, adminChatRes] = await Promise.all([
+        fetch(`${API_URL}/api/chat/admin/inbox`),
+        fetch(`${API_URL}/api/admin-chat/inbox/${user.id}`),
+      ]);
 
-    const fetchUnreadCounts = async () => {
-      try {
-        const [chatRes, adminChatRes] = await Promise.all([
-          fetch(`${API_URL}/api/chat/admin/inbox`),
-          fetch(`${API_URL}/api/admin-chat/inbox/${user.id}`),
-        ]);
-
-        if (chatRes.ok) {
-          const chatData: { unreadCount: number }[] = await chatRes.json();
-          setChatUnread(chatData.reduce((sum, item) => sum + (item.unreadCount || 0), 0));
-        }
-
-        if (adminChatRes.ok) {
-          const adminChatData: { unreadCount: number }[] = await adminChatRes.json();
-          setAdminChatUnread(adminChatData.reduce((sum, item) => sum + (item.unreadCount || 0), 0));
-        }
-      } catch (err) {
-        console.error(err);
+      if (chatRes.ok) {
+        const chatData: { unreadCount: number }[] = await chatRes.json();
+        setChatUnread(chatData.reduce((sum, item) => sum + (item.unreadCount || 0), 0));
       }
-    };
 
+      if (adminChatRes.ok) {
+        const adminChatData: { unreadCount: number }[] = await adminChatRes.json();
+        setAdminChatUnread(adminChatData.reduce((sum, item) => sum + (item.unreadCount || 0), 0));
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  useEffect(() => {
     fetchUnreadCounts();
-    const interval = setInterval(fetchUnreadCounts, 5000);
-    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
+
+  useSmartPolling(fetchUnreadCounts, 8000, !!user);
 
   const handleLogout = () => {
     logout();
@@ -279,27 +290,29 @@ export const AdminPanel: React.FC = () => {
         </div>
 
         <div className="flex-1 flex flex-col items-center gap-6 min-w-0 order-1 xl:order-none">
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={tab}
-              initial={{ opacity: 0, y: 16, scale: 0.98 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.25, ease: 'easeOut' }}
-              className="w-full"
-            >
-              {tab === 'scan' && <ScanView />}
-              {tab === 'prizeBooth' && <PrizeBoothView />}
-              {tab === 'redemptions' && <RedemptionsView />}
-              {tab === 'achievements' && <AchievementsView />}
-              {tab === 'games' && <GamesView />}
-              {tab === 'admins' && <AdminsView />}
-              {tab === 'docs' && <DocsView />}
-              {tab === 'chat' && <ChatInbox />}
-              {tab === 'adminChat' && <AdminChatView />}
-              {tab === 'recovery' && <AdminRecoveryView />}
-            </motion.div>
-          </AnimatePresence>
+          <Suspense fallback={<TabLoader />}>
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={tab}
+                initial={{ opacity: 0, y: 16, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.25, ease: 'easeOut' }}
+                className="w-full"
+              >
+                {tab === 'scan' && <ScanView />}
+                {tab === 'prizeBooth' && <PrizeBoothView />}
+                {tab === 'redemptions' && <RedemptionsView />}
+                {tab === 'achievements' && <AchievementsView />}
+                {tab === 'games' && <GamesView />}
+                {tab === 'admins' && <AdminsView />}
+                {tab === 'docs' && <DocsView />}
+                {tab === 'chat' && <ChatInbox />}
+                {tab === 'adminChat' && <AdminChatView />}
+                {tab === 'recovery' && <AdminRecoveryView />}
+              </motion.div>
+            </AnimatePresence>
+          </Suspense>
 
           {/* Только десктоп — здесь PrizeDonut идёт сразу под контентом в средней колонке */}
           <div className="hidden xl:block w-full">
@@ -313,11 +326,15 @@ export const AdminPanel: React.FC = () => {
         </div>
 
         <div className="flex xl:hidden flex-col gap-4 w-full order-4">
-          <ActivityFeed />
+          <Suspense fallback={<TabLoader />}>
+            <ActivityFeed />
+          </Suspense>
         </div>
 
         <div className="hidden xl:flex flex-col gap-6 w-[300px] shrink-0">
-          <ActivityFeed />
+          <Suspense fallback={<TabLoader />}>
+            <ActivityFeed />
+          </Suspense>
         </div>
       </div>
     </div>

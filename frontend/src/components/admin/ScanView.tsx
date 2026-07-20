@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Html5Qrcode, Html5QrcodeScannerState } from 'html5-qrcode';
+import { useSmartPolling } from '../../hooks/useSmartPolling';
+import type { Html5Qrcode } from 'html5-qrcode';
 import { QRCodeSVG } from 'qrcode.react';
 import { useUser } from '../../authorization/UserContext';
 import { API_URL } from '../../config';
@@ -34,6 +35,12 @@ interface HistoryItem {
   points: number;
   createdAt: string;
 }
+
+// html5-qrcode — тяжёлая библиотека (~370kB), нужна только на этом экране
+// и только когда камера реально запускается. Импортируем её динамически
+// (import()), а не статически вверху файла — типы всё равно доступны через
+// `import type`, который не попадает в рантайм-бандл.
+type Html5QrcodeModule = typeof import('html5-qrcode');
 
 // Состояние экрана — переживает обновление страницы (F5), чтобы админ не
 // терял найденного участника посреди работы. Транзитные состояния
@@ -111,8 +118,8 @@ export const ScanView: React.FC = () => {
   const [deductError, setDeductError] = useState('');
 
   const scannerRef = useRef<Html5Qrcode | null>(null);
+  const html5QrcodeModuleRef = useRef<Html5QrcodeModule | null>(null);
   const isProcessingRef = useRef(false);
-  const incomingPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Тихий фоновый опрос статуса станций — не трогает loading/ошибки,
   // просто держит доступность кнопок актуальной, пока админ работает
@@ -171,78 +178,79 @@ export const ScanView: React.FC = () => {
 
   useEffect(() => {
     fetchStationSettings();
-    const interval = setInterval(fetchStationSettings, 5000);
-    return () => clearInterval(interval);
   }, []);
+  useSmartPolling(fetchStationSettings, 10000);
 
   const isStationLocked = (stationNumber: number): boolean => {
     const key = `station${stationNumber}_unlocked` as keyof StationUnlockState;
     return !stationUnlocked[key];
   };
 
+  // Камера + html5-qrcode подгружаются динамически только здесь, в момент
+  // реального запуска сканирования (cameraStarted === true) — до этого
+  // библиотека вообще не скачивается браузером.
   useEffect(() => {
     if (mode !== 'scanning' || !cameraStarted) return;
     isProcessingRef.current = false;
     setCameraError('');
 
-    const scanner = new Html5Qrcode(SCANNER_ELEMENT_ID);
-    scannerRef.current = scanner;
+    let cancelled = false;
 
-    scanner
-      .start(
-        { facingMode: 'environment' },
-        { fps: 10, qrbox: 220 },
-        (decodedText) => handleScanSuccess(decodedText),
-        () => {
-          // ошибки отдельных кадров игнорируем — камера сканирует непрерывно
-        }
-      )
-      .catch((err) => {
-        console.error(err);
-        setCameraError('Не удалось получить доступ к камере');
-      });
+    import('html5-qrcode').then(({ Html5Qrcode, Html5QrcodeScannerState }) => {
+      if (cancelled) return;
+      html5QrcodeModuleRef.current = { Html5Qrcode, Html5QrcodeScannerState } as Html5QrcodeModule;
+
+      const scanner = new Html5Qrcode(SCANNER_ELEMENT_ID);
+      scannerRef.current = scanner;
+
+      scanner
+        .start(
+          { facingMode: 'environment' },
+          { fps: 10, qrbox: 220 },
+          (decodedText) => handleScanSuccess(decodedText),
+          () => {
+            // ошибки отдельных кадров игнорируем — камера сканирует непрерывно
+          }
+        )
+        .catch((err) => {
+          console.error(err);
+          setCameraError('Не удалось получить доступ к камере');
+        });
+    });
 
     return () => {
+      cancelled = true;
       const s = scannerRef.current;
-      if (s && s.getState() === Html5QrcodeScannerState.SCANNING) {
+      const mod = html5QrcodeModuleRef.current;
+      if (s && mod && s.getState() === mod.Html5QrcodeScannerState.SCANNING) {
         s.stop().catch(() => {});
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, cameraStarted]);
 
-  useEffect(() => {
-    if (mode !== 'scanning' || !user) return;
-
-    const poll = async () => {
-      try {
-        const res = await fetch(`${API_URL}/api/admin/scan-requests/${user.id}`);
-        const data = await res.json();
-        if (res.ok && data.participantId) {
-          handleScanSuccess(data.participantId);
-        }
-      } catch (err) {
-        console.error(err);
+  const pollIncomingScan = async () => {
+    if (!user) return;
+    try {
+      const res = await fetch(`${API_URL}/api/admin/scan-requests/${user.id}`);
+      const data = await res.json();
+      if (res.ok && data.participantId) {
+        handleScanSuccess(data.participantId);
       }
-    };
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
-    incomingPollRef.current = setInterval(poll, 2000);
-    return () => {
-      if (incomingPollRef.current) clearInterval(incomingPollRef.current);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, user]);
+  useSmartPolling(pollIncomingScan, 2000, mode === 'scanning' && !!user);
 
   const handleScanSuccess = async (scannedUserId: string, isManualEntry = false) => {
     if (isProcessingRef.current) return;
     isProcessingRef.current = true;
 
-    if (incomingPollRef.current) {
-      clearInterval(incomingPollRef.current);
-    }
-
     const s = scannerRef.current;
-    if (s && s.getState() === Html5QrcodeScannerState.SCANNING) {
+    const mod = html5QrcodeModuleRef.current;
+    if (s && mod && s.getState() === mod.Html5QrcodeScannerState.SCANNING) {
       try {
         await s.stop();
       } catch (e) {
@@ -281,7 +289,8 @@ export const ScanView: React.FC = () => {
     if (!trimmedId) return;
 
     const s = scannerRef.current;
-    if (s && s.getState() === Html5QrcodeScannerState.SCANNING) {
+    const mod = html5QrcodeModuleRef.current;
+    if (s && mod && s.getState() === mod.Html5QrcodeScannerState.SCANNING) {
       try {
         await s.stop();
       } catch (e) {

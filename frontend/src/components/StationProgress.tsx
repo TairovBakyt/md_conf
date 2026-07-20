@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { API_URL } from '../config';
+import { useSmartPolling } from '../hooks/useSmartPolling';
 
 interface StationProgressProps {
   userId: string;
@@ -39,59 +40,60 @@ export const StationProgress: React.FC<StationProgressProps> = ({ userId, isQuiz
     filword_unlocked: false,
   });
 
-  useEffect(() => {
-    const fetchFilwordStatus = async () => {
-      try {
-        const res = await fetch(`${API_URL}/api/filword/status/${userId}`);
-        const data = await res.json();
-        if (res.ok) setFilwordPassed(data.passed);
-      } catch (err) {
-        console.error(err);
-      }
-    };
+  const fetchFilwordStatus = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/filword/status/${userId}`);
+      const data = await res.json();
+      if (res.ok) setFilwordPassed(data.passed);
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
-    const fetchManualStations = async () => {
-      try {
-        const res = await fetch(`${API_URL}/api/stations/${userId}`);
-        const data = await res.json();
-        if (res.ok) {
-          setManualStations(data.stations);
-          setQuizPoints(data.quizPoints ?? 0);
-          setFilwordPoints(data.filwordPoints ?? 0);
-        }
-      } catch (err) {
-        console.error(err);
+  const fetchManualStations = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/stations/${userId}`);
+      const data = await res.json();
+      if (res.ok) {
+        setManualStations(data.stations);
+        setQuizPoints(data.quizPoints ?? 0);
+        setFilwordPoints(data.filwordPoints ?? 0);
       }
-    };
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
-    // Нужно, чтобы показывать "Закрыта" для викторины/филворда, если они
-    // ещё не пройдены и сейчас не открыты админом — иначе непройденная
-    // игра выглядит одинаково независимо от её реального статуса.
-    const fetchGameSettings = async () => {
-      try {
-        const res = await fetch(`${API_URL}/api/settings`);
-        const data = await res.json();
-        if (res.ok) {
-          setGameUnlocked({
-            quiz_unlocked: !!data.quiz_unlocked,
-            filword_unlocked: !!data.filword_unlocked,
-          });
-        }
-      } catch (err) {
-        console.error(err);
+  // Нужно, чтобы показывать "Закрыта" для викторины/филворда, если они
+  // ещё не пройдены и сейчас не открыты админом — иначе непройденная
+  // игра выглядит одинаково независимо от её реального статуса.
+  const fetchGameSettings = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/settings`);
+      const data = await res.json();
+      if (res.ok) {
+        setGameUnlocked({
+          quiz_unlocked: !!data.quiz_unlocked,
+          filword_unlocked: !!data.filword_unlocked,
+        });
       }
-    };
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
+  const fetchAll = () => {
     fetchFilwordStatus();
     fetchManualStations();
     fetchGameSettings();
-    const interval = setInterval(() => {
-      fetchFilwordStatus();
-      fetchManualStations();
-      fetchGameSettings();
-    }, 5000);
-    return () => clearInterval(interval);
+  };
+
+  useEffect(() => {
+    fetchAll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
+
+  useSmartPolling(fetchAll, 8000);
 
   const quizLocked = !isQuizPassed && !gameUnlocked.quiz_unlocked;
   const filwordLocked = !filwordPassed && !gameUnlocked.filword_unlocked;

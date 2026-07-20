@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { API_URL } from '../config';
+import { useSmartPolling } from '../hooks/useSmartPolling';
 
 interface AverageComparisonProps {
   myScore: number;
@@ -8,22 +9,23 @@ interface AverageComparisonProps {
 export const AverageComparison: React.FC<AverageComparisonProps> = ({ myScore }) => {
   const [average, setAverage] = useState<number | null>(null);
 
-  useEffect(() => {
-    const fetchStats = async () => {
-      try {
-        const res = await fetch(`${API_URL}/api/admin/stats`);
-        const data = await res.json();
-        if (res.ok && data.totalParticipants > 0) {
-          setAverage(Math.round(data.totalPointsIssued / data.totalParticipants));
-        }
-      } catch (err) {
-        console.error(err);
+  const fetchStats = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/admin/stats`);
+      const data = await res.json();
+      if (res.ok && data.totalParticipants > 0) {
+        setAverage(Math.round(data.totalPointsIssued / data.totalParticipants));
       }
-    };
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  useEffect(() => {
     fetchStats();
-    const interval = setInterval(fetchStats, 15000);
-    return () => clearInterval(interval);
   }, []);
+
+  useSmartPolling(fetchStats, 15000);
 
   if (average === null) return null;
 

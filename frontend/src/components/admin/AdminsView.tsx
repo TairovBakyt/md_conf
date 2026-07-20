@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useUser } from '../../authorization/UserContext';
 import { API_URL } from '../../config';
 import { ADMIN_TAB_DEFS, getAccessLabel, type AdminTabId } from '../../adminTabs';
@@ -45,7 +45,7 @@ export const AdminsView: React.FC = () => {
   const [editingPermissions, setEditingPermissions] = useState(false);
   const [selectedTabs, setSelectedTabs] = useState<Set<AdminTabId>>(new Set());
 
-  React.// Сохраняем только найденного участника — поле поиска специально не
+  // Сохраняем только найденного участника — поле поиска специально не
   // персистится, чтобы при возврате на вкладку оно всегда было пустым.
   useEffect(() => {
     try {

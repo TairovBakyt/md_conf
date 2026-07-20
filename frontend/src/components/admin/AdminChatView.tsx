@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { useSmartPolling } from '../../hooks/useSmartPolling';
 import { useUser } from '../../authorization/UserContext';
 import { API_URL } from '../../config';
 import { type AdminTabId } from '../../adminTabs';
@@ -162,8 +163,7 @@ export const AdminChatView: React.FC = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const shouldAutoScrollRef = useRef(true);
-  const inboxPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const threadPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -222,15 +222,11 @@ export const AdminChatView: React.FC = () => {
   };
 
   useEffect(() => {
-    if (view !== 'list' && view !== 'thread') return;
-    fetchInbox();
-    inboxPollRef.current = setInterval(fetchInbox, 5000);
-    return () => {
-      if (inboxPollRef.current) clearInterval(inboxPollRef.current);
-    };
+    if (view === 'list' || view === 'thread') fetchInbox();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view]);
 
+  useSmartPolling(fetchInbox, 8000, view === 'list' || view === 'thread');
   // Восстанавливаем список админов, если после F5 оказались на экране выбора собеседника
   useEffect(() => {
     if (view === 'newChat') fetchAllAdmins();
@@ -267,24 +263,24 @@ export const AdminChatView: React.FC = () => {
     } catch (err) {
       console.error(err);
     }
-
-    if (threadPollRef.current) clearInterval(threadPollRef.current);
-    threadPollRef.current = setInterval(() => fetchThread(otherId), 3000);
   };
 
-  // Если после F5 оказались на экране треда — подтягиваем сообщения,
-  // черновик и запускаем поллинг заново.
+  // Если после F5 оказались на экране треда — подтягиваем сообщения и
+  // черновик; сам поллинг ниже через useSmartPolling.
   useEffect(() => {
     if (view !== 'thread' || !selectedOther) return;
     setInput(loadDraft(selectedOther.id));
     fetchThread(selectedOther.id);
-    if (threadPollRef.current) clearInterval(threadPollRef.current);
-    threadPollRef.current = setInterval(() => fetchThread(selectedOther.id), 3000);
-    return () => {
-      if (threadPollRef.current) clearInterval(threadPollRef.current);
-    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useSmartPolling(
+    () => {
+      if (selectedOther) fetchThread(selectedOther.id);
+    },
+    3000,
+    view === 'thread' && !!selectedOther
+  );
 
   // Автопрокрутка к последнему сообщению — только если пользователь и так
   // был внизу (или это первое открытие треда). Если он вручную проскроллил
@@ -305,7 +301,6 @@ export const AdminChatView: React.FC = () => {
   };
 
   const closeThread = () => {
-    if (threadPollRef.current) clearInterval(threadPollRef.current);
     // Останавливаем запись если она была активна
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       recordCancelledRef.current = true;

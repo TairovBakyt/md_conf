@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { API_URL } from '../config';
+import { useSmartPolling } from '../hooks/useSmartPolling';
 
 interface LeaderboardEntry {
   username: string;
@@ -9,20 +10,21 @@ interface LeaderboardEntry {
 export const LiveLeaderboard: React.FC = () => {
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
 
+  const fetchData = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/admin/leaderboard`);
+      const data = await res.json();
+      if (res.ok) setEntries(data);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const res = await fetch(`${API_URL}/api/admin/leaderboard`);
-        const data = await res.json();
-        if (res.ok) setEntries(data);
-      } catch (err) {
-        console.error(err);
-      }
-    };
     fetchData();
-    const interval = setInterval(fetchData, 15000);
-    return () => clearInterval(interval);
   }, []);
+
+  useSmartPolling(fetchData, 15000);
 
   const maxScore = Math.max(...entries.map((e) => e.score), 1);
 

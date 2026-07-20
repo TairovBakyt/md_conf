@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import { useSmartPolling } from '../hooks/useSmartPolling';
 import { BalanceZone } from '../components/BalanceZone';
 import { QrZone } from '../components/QrZone';
 import { StationsInfo } from '../components/StationsInfo';
@@ -127,16 +128,7 @@ export const Dashboard: React.FC = () => {
   // Держим баланс, достижения, статус станций и доступность игр в
   // актуальном состоянии без обновления страницы — без принудительного
   // редиректа, вход в игру только по клику.
-  useEffect(() => {
-    if (!user) return;
-
-    const interval = setInterval(() => {
-      fetchProfile(false);
-    }, 5000);
-
-    return () => clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user]);
+  useSmartPolling(() => fetchProfile(false), 5000, !!user);
 
   const handleStartQuiz = () => navigate('/quiz');
   const handleStartFilword = () => navigate('/filword');

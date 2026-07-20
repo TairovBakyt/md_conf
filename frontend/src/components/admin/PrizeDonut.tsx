@@ -1,5 +1,6 @@
-    import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { API_URL } from '../../config';
+import { useSmartPolling } from '../../hooks/useSmartPolling';
 
 interface TierStats {
   low: number;
@@ -10,20 +11,21 @@ interface TierStats {
 export const PrizeDonut: React.FC = () => {
   const [stats, setStats] = useState<TierStats>({ low: 0, middle: 0, high: 0 });
 
+  const fetchData = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/admin/prize-tier-stats`);
+      const data = await res.json();
+      if (res.ok) setStats(data);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const res = await fetch(`${API_URL}/api/admin/prize-tier-stats`);
-        const data = await res.json();
-        if (res.ok) setStats(data);
-      } catch (err) {
-        console.error(err);
-      }
-    };
     fetchData();
-    const interval = setInterval(fetchData, 15000);
-    return () => clearInterval(interval);
   }, []);
+
+  useSmartPolling(fetchData, 15000);
 
   const total = stats.low + stats.middle + stats.high;
   const circumference = 2 * Math.PI * 70;
