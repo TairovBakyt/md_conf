@@ -57,8 +57,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
-        <span className="text-slate-400 text-sm">Загрузка...</span>
+      <div className="min-h-screen flex items-center justify-center">
+        <span className="pixel-panel px-4 py-3 text-mc-cream text-xs">Загрузка...</span>
       </div>
     );
   }

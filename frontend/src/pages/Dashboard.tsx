@@ -13,6 +13,7 @@ import { AverageComparison } from '../components/AverageComparison';
 import { CompanyInfo } from '../components/CompanyInfo';
 import { SpeakersList } from '../components/SpeakersList';
 import { HelpBot } from '../components/HelpBot';
+import { IconGift, IconCamera, IconInfo, IconQuiz, IconWord, IconLock, IconHourglass, IconTrophy, IconCheck } from '../components/icons';
 
 export const Dashboard: React.FC = () => {
   const { user, setUser, logout } = useUser();
@@ -148,17 +149,17 @@ export const Dashboard: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
-        <span className="text-slate-400">Загружаем профиль...</span>
+      <div className="min-h-screen flex items-center justify-center">
+        <span className="pixel-panel px-4 py-3 text-mc-cream text-xs">Загружаем профиль...</span>
       </div>
     );
   }
 
   if (error || !profile) {
     return (
-      <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center gap-4">
-        <span className="text-red-400">{error || 'Профиль не найден'}</span>
-        <button onClick={handleLogout} className="text-slate-400 underline text-sm">
+      <div className="min-h-screen flex flex-col items-center justify-center gap-4 px-4">
+        <span className="pixel-panel px-4 py-3 text-mc-redstone text-xs text-center">{error || 'Профиль не найден'}</span>
+        <button onClick={handleLogout} className="text-mc-cream/70 hover:text-mc-gold underline text-xs">
           Выйти и войти заново
         </button>
       </div>
@@ -166,19 +167,12 @@ export const Dashboard: React.FC = () => {
   }
 
   return (
-    <div
-  className="min-h-screen bg-slate-900 px-4 py-8 flex flex-col items-center font-sans relative overflow-hidden"
-  style={{
-    backgroundImage:
-      'radial-gradient(circle at 15% 15%, rgba(99,102,241,0.10), transparent 35%), radial-gradient(circle at 85% 80%, rgba(56,189,248,0.08), transparent 35%), radial-gradient(circle, rgba(148,163,184,0.06) 1px, transparent 1px)',
-    backgroundSize: 'auto, auto, 28px 28px',
-  }}
->
+    <div className="min-h-screen px-4 py-8 flex flex-col items-center relative overflow-hidden">
       <div className="w-full max-w-md xl:max-w-6xl flex justify-between items-center mb-6">
-        <span className="text-xl font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-cyan-400">
+        <span className="pixel-title text-base sm:text-xl font-black tracking-widest text-mc-gold">
           MDCONF 2026
         </span>
-        <button onClick={handleLogout} className="text-slate-500 hover:text-slate-300 text-xs transition-colors">
+        <button onClick={handleLogout} className="text-mc-cream/60 hover:text-mc-gold text-[10px] transition-colors">
           Выйти
         </button>
       </div>
@@ -198,9 +192,10 @@ export const Dashboard: React.FC = () => {
 
         <div className="flex-1 flex flex-col items-center min-w-0">
   <div className="w-full max-w-md">
-    <div className="w-full bg-gradient-to-r from-indigo-600 to-cyan-600 rounded-2xl p-4 mb-4 text-center">
-      <p className="text-white text-sm font-medium leading-relaxed">
-        🎁 Сегодня вы можете получить призы за прохождение игровых станций. Чем больше баллов наберёте — тем лучше подарок сможете получить.
+    <div className="pixel-panel bg-gradient-to-r from-mc-lapis to-mc-purple p-4 mb-4 text-center">
+      <p className="text-mc-cream text-xs leading-relaxed flex items-start gap-2">
+        <IconGift className="w-5 h-5 shrink-0" />
+        <span>Сегодня вы можете получить призы за прохождение игровых станций. Чем больше баллов наберёте — тем лучше подарок сможете получить.</span>
       </p>
     </div>
 
@@ -211,73 +206,71 @@ export const Dashboard: React.FC = () => {
               <QrZone userId={profile.id} />
               <Link
                 to="/scan-admin"
-                className="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium rounded-2xl py-3 transition-colors flex items-center justify-center"
+                className="pixel-btn w-full bg-mc-wood text-mc-cream font-medium py-3 flex items-center justify-center gap-2"
               >
-                📷 Сканировать
+                <IconCamera className="w-5 h-5 shrink-0" /> Сканировать
               </Link>
             </div>
 
             <Link
               to="/prizes"
-              className="w-full mt-3 block text-center bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium rounded-2xl py-3 transition-colors"
+              className="pixel-btn w-full mt-3 flex items-center justify-center gap-2 text-center bg-mc-wood text-mc-cream font-medium py-3"
             >
-              🎁 Магазин призов
+              <IconGift className="w-5 h-5 shrink-0" /> Магазин призов
             </Link>
 
             <Link
               to="/about"
-              className="w-full mt-3 block text-center bg-slate-800/60 hover:bg-slate-800 text-slate-400 hover:text-slate-200 font-medium rounded-2xl py-3 transition-colors flex items-center justify-center gap-2"
+              className="pixel-btn w-full mt-3 block text-center bg-mc-panel-light text-mc-cream/80 font-medium py-3 flex items-center justify-center gap-2"
             >
-              ℹ️ О мероприятии
+              <IconInfo className="w-5 h-5 shrink-0" /> О мероприятии
             </Link>
 
             {/* ВИКТОРИНА */}
             {profile.is_quiz_passed ? (
-              <div className="w-full mt-3 p-4 bg-emerald-950/40 border border-emerald-500/30 rounded-2xl flex items-center justify-center gap-3 text-emerald-400 font-semibold">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
+              <div className="pixel-panel w-full mt-3 p-4 border-mc-emerald-dark flex items-center justify-center gap-3 text-mc-emerald font-semibold text-xs">
+                <IconCheck className="h-5 w-5 shrink-0" />
                 Викторина «Hardcore QA» пройдена
               </div>
             ) : gameSettings.quiz_unlocked && gameSettings.quiz_mode === 'synced' ? (
-              <div className="w-full mt-3 p-4 bg-indigo-950/40 border border-indigo-500/30 rounded-2xl flex items-center justify-center gap-2 text-indigo-300 text-sm">
-                ⏳ Викторина сейчас начнётся у всех одновременно — держите приложение открытым
+              <div className="pixel-panel w-full mt-3 p-4 flex items-center justify-center gap-2 text-xs" style={{ color: '#8fb3ff' }}>
+                <IconHourglass className="h-5 w-5 shrink-0" />
+                Викторина сейчас начнётся у всех одновременно — держите приложение открытым
               </div>
             ) : gameSettings.quiz_unlocked ? (
               <button
                 onClick={handleStartQuiz}
-                className="w-full mt-3 block text-center bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-2xl py-3 transition-colors"
+                className="pixel-btn w-full mt-3 flex items-center justify-center gap-2 text-center bg-mc-emerald text-white font-medium py-3"
               >
-                🧠 Викторина «Hardcore QA»
+                <IconQuiz className="h-5 w-5 shrink-0" /> Викторина «Hardcore QA»
               </button>
             ) : (
-              <div className="w-full mt-3 p-4 bg-slate-800/40 border border-slate-700 rounded-2xl flex items-center justify-center gap-2 text-slate-500 text-sm">
-                🔒 Викторина «Hardcore QA» — скоро откроется
+              <div className="pixel-panel w-full mt-3 p-4 flex items-center justify-center gap-2 text-mc-cream/50 text-xs">
+                <IconLock className="h-5 w-5 shrink-0" /> Викторина «Hardcore QA» — скоро откроется
               </div>
             )}
 
             {/* ФИЛВОРД */}
             {profile.is_filword_passed ? (
-              <div className="w-full mt-3 p-4 bg-emerald-950/40 border border-emerald-500/30 rounded-2xl flex items-center justify-center gap-3 text-emerald-400 font-semibold">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
+              <div className="pixel-panel w-full mt-3 p-4 border-mc-emerald-dark flex items-center justify-center gap-3 text-mc-emerald font-semibold text-xs">
+                <IconCheck className="h-5 w-5 shrink-0" />
                 Филворд «Word Researcher» пройден
               </div>
             ) : gameSettings.filword_unlocked && gameSettings.filword_mode === 'synced' ? (
-              <div className="w-full mt-3 p-4 bg-indigo-950/40 border border-indigo-500/30 rounded-2xl flex items-center justify-center gap-2 text-indigo-300 text-sm">
-                ⏳ Филворд сейчас начнётся у всех одновременно — держите приложение открытым
+              <div className="pixel-panel w-full mt-3 p-4 flex items-center justify-center gap-2 text-xs" style={{ color: '#8fb3ff' }}>
+                <IconHourglass className="h-5 w-5 shrink-0" />
+                Филворд сейчас начнётся у всех одновременно — держите приложение открытым
               </div>
             ) : gameSettings.filword_unlocked ? (
               <button
                 onClick={handleStartFilword}
-                className="w-full mt-3 block text-center bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-2xl py-3 transition-colors"
+                className="pixel-btn w-full mt-3 flex items-center justify-center gap-2 text-center bg-mc-emerald text-white font-medium py-3"
               >
-                🔤 Филворд «Word Researcher»
+                <IconWord className="h-5 w-5 shrink-0" /> Филворд «Word Researcher»
               </button>
             ) : (
-              <div className="w-full mt-3 p-4 bg-slate-800/40 border border-slate-700 rounded-2xl flex items-center justify-center gap-2 text-slate-500 text-sm">
-                🔒 Филворд «Word Researcher» — скоро откроется
+              <div className="pixel-panel w-full mt-3 p-4 flex items-center justify-center gap-2 text-mc-cream/50 text-xs">
+                <IconLock className="h-5 w-5 shrink-0" /> Филворд «Word Researcher» — скоро откроется
               </div>
             )}
 
@@ -290,19 +283,19 @@ export const Dashboard: React.FC = () => {
 
             {profile.achievements && profile.achievements.length > 0 && (
               <div className="w-full mt-6">
-                <h2 className="text-slate-400 text-xs font-medium uppercase tracking-wider mb-2">
+                <h2 className="text-mc-cream/60 text-[10px] font-medium uppercase tracking-wider mb-2">
                   Мои достижения
                 </h2>
                 <div className="flex flex-col gap-2">
                   {profile.achievements.map((achievement) => (
                     <div
                       key={achievement.id}
-                      className="bg-slate-800/60 backdrop-blur-md border border-slate-700 rounded-xl p-3 flex items-center gap-3"
+                      className="pixel-tile p-3 flex items-center gap-3"
                     >
-                      <span className="text-xl shrink-0">🏆</span>
+                      <IconTrophy className="w-6 h-6 shrink-0 text-mc-gold" />
                       <div className="min-w-0">
-                        <p className="text-slate-100 text-sm font-medium truncate">{achievement.title}</p>
-                        <p className="text-amber-400 text-xs">+{achievement.points} баллов</p>
+                        <p className="text-mc-cream text-xs font-medium truncate">{achievement.title}</p>
+                        <p className="text-mc-gold text-[10px]">+{achievement.points} баллов</p>
                       </div>
                     </div>
                   ))}

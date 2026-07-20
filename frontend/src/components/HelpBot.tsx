@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useUser } from '../authorization/UserContext';
 import { API_URL } from '../config';
+import { IconChat, IconTrash, IconPencil, IconSend, IconPlay, IconPause, IconPaperclip, IconCamera, IconMic } from './icons';
 
 const TAP_THRESHOLD_MS = 300;
 const SWIPE_CANCEL_PX = 80;
@@ -16,7 +17,7 @@ function renderMessageText(text: string): React.ReactNode[] {
         href={part}
         target="_blank"
         rel="noopener noreferrer"
-        className="underline text-cyan-300 hover:text-cyan-200 break-all"
+        className="underline text-mc-gold hover:text-yellow-200 break-all"
         onClick={(e) => e.stopPropagation()}
       >
         {part}
@@ -463,22 +464,22 @@ export const HelpBot: React.FC = () => {
 
   return (
     <div className="w-full max-w-md mx-auto mt-6">
-      <h2 className="text-slate-400 text-xs font-medium uppercase tracking-wider mb-2">
+      <h2 className="text-mc-cream/60 text-[10px] font-medium uppercase tracking-wider mb-2">
         Помощь
       </h2>
 
       <div className="flex flex-col gap-2">
         {FAQ.map((item, i) => (
-          <div key={i} className="bg-slate-800/60 border border-slate-700 rounded-xl overflow-hidden">
+          <div key={i} className="pixel-tile overflow-hidden">
             <button
               onClick={() => setOpenFaq(openFaq === i ? null : i)}
-              className="w-full text-left px-3 py-2.5 text-slate-100 text-sm font-medium flex items-center justify-between"
+              className="w-full text-left px-3 py-2.5 text-mc-cream text-xs font-medium flex items-center justify-between"
             >
               {item.question}
-              <span className="text-slate-500 text-xs">{openFaq === i ? '−' : '+'}</span>
+              <span className="text-mc-cream/50 text-xs">{openFaq === i ? '−' : '+'}</span>
             </button>
             {openFaq === i && (
-              <p className="px-3 pb-3 text-slate-400 text-xs leading-relaxed">{item.answer}</p>
+              <p className="px-3 pb-3 text-mc-cream/60 text-[10px] leading-relaxed">{item.answer}</p>
             )}
           </div>
         ))}
@@ -487,20 +488,20 @@ export const HelpBot: React.FC = () => {
       {!showChat ? (
         <button
           onClick={() => setShowChat(true)}
-          className="relative w-full mt-3 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium rounded-xl py-2.5 text-sm transition-colors"
+          className="pixel-btn relative w-full mt-3 bg-mc-wood text-mc-cream font-medium py-2.5 text-xs transition-colors flex items-center justify-center gap-2"
         >
-          💬 Не нашли ответ? Написать администратору
+          <IconChat className="w-4 h-4 shrink-0" /> Не нашли ответ? Написать администратору
           {unreadCount > 0 && (
-            <span className="absolute -top-2 -right-2 bg-red-500 text-white text-[10px] font-bold rounded-full min-w-[20px] h-[20px] flex items-center justify-center px-1 shadow-md">
+            <span className="pixel-badge absolute -top-2 -right-2 bg-mc-redstone text-white text-[10px] font-bold min-w-[20px] h-[20px] flex items-center justify-center px-1">
               {unreadCount > 99 ? '99+' : unreadCount}
             </span>
           )}
         </button>
       ) : (
-        <div className="mt-3 bg-slate-950 border border-slate-800 rounded-xl p-3 h-[500px] flex flex-col">
+        <div className="pixel-panel mt-3 p-3 h-[500px] flex flex-col">
           <div className="flex items-center justify-between mb-2 shrink-0">
-            <span className="text-slate-500 text-[10px]">Переписка с администратором</span>
-            <button onClick={() => setShowChat(false)} className="text-slate-500 hover:text-slate-300 text-xs">
+            <span className="text-mc-cream/50 text-[9px]">Переписка с администратором</span>
+            <button onClick={() => setShowChat(false)} className="text-mc-cream/50 hover:text-mc-gold text-[10px]">
               Свернуть
             </button>
           </div>
@@ -508,19 +509,19 @@ export const HelpBot: React.FC = () => {
           <div
             ref={messagesContainerRef}
             onScroll={handleMessagesScroll}
-            className="flex flex-col gap-2 flex-1 overflow-y-auto mb-2"
+            className="pixel-scroll flex flex-col gap-2 flex-1 overflow-y-auto mb-2"
           >
             {messages.length === 0 && (
-              <p className="text-slate-600 text-xs text-center py-2">Напишите свой вопрос ниже</p>
+              <p className="text-mc-cream/40 text-[10px] text-center py-2">Напишите свой вопрос ниже</p>
             )}
             {messages.map((m) => (
               <div
                 key={m.id}
                 onClick={() => setRevealedId(revealedId === m.id ? null : m.id)}
-                className={`max-w-[80%] rounded-lg px-3 py-2 text-xs relative cursor-pointer ${
+                className={`pixel-tile max-w-[80%] px-3 py-2 text-[10px] relative cursor-pointer ${
                   m.sender === 'participant'
-                    ? 'bg-indigo-600 text-white self-end'
-                    : 'bg-slate-800 text-slate-200 self-start'
+                    ? 'bg-mc-emerald-dark text-white self-end'
+                    : 'text-mc-cream self-start'
                 }`}
               >
                 {m.attachment_type === 'image' && (
@@ -555,11 +556,11 @@ export const HelpBot: React.FC = () => {
                       value={editText}
                       onChange={(e) => setEditText(e.target.value)}
                       onKeyDown={(e) => e.key === 'Enter' && handleSaveEdit(m.id)}
-                      className="flex-1 bg-slate-900 text-slate-100 text-[11px] rounded px-2 py-1 outline-none"
+                      className="flex-1 bg-mc-panel text-mc-cream text-[11px] px-2 py-1 outline-none border-2 border-black"
                       autoFocus
                     />
-                    <button onClick={() => handleSaveEdit(m.id)} className="text-emerald-400 text-xs">✓</button>
-                    <button onClick={() => setEditingId(null)} className="text-slate-400 text-xs">✕</button>
+                    <button onClick={() => handleSaveEdit(m.id)} className="text-mc-emerald text-xs">✓</button>
+                    <button onClick={() => setEditingId(null)} className="text-mc-cream/50 text-xs">✕</button>
                   </div>
                 ) : (
                   m.message && <span>{renderMessageText(m.message)}</span>
@@ -567,16 +568,16 @@ export const HelpBot: React.FC = () => {
 
                 {revealedId === m.id && editingId !== m.id && (
                   <div
-                    className="flex gap-2 absolute -top-2 right-1 bg-slate-950 rounded px-1.5 py-0.5"
+                    className="pixel-badge flex gap-2 absolute -top-2 right-1 bg-mc-panel px-1.5 py-0.5"
                     onClick={(e) => e.stopPropagation()}
                   >
                     {m.sender === 'participant' && m.message && !m.attachment_type && (
-                      <button onClick={() => handleStartEdit(m)} className="text-slate-400 hover:text-slate-200 text-xs">
-                        ✎
+                      <button onClick={() => handleStartEdit(m)} className="text-mc-cream/60 hover:text-mc-cream">
+                        <IconPencil className="w-3.5 h-3.5" />
                       </button>
                     )}
-                    <button onClick={() => handleDeleteMessage(m)} className="text-red-400 hover:text-red-300 text-xs">
-                      🗑
+                    <button onClick={() => handleDeleteMessage(m)} className="text-mc-redstone hover:text-red-400">
+                      <IconTrash className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 )}
@@ -585,7 +586,7 @@ export const HelpBot: React.FC = () => {
           </div>
 
           {showEmoji && !recordLocked && (
-            <div className="flex flex-wrap gap-1.5 mb-2 bg-slate-800 rounded-lg p-2 shrink-0">
+            <div className="pixel-tile flex flex-wrap gap-1.5 mb-2 p-2 shrink-0">
               {EMOJI_LIST.map((emoji) => (
                 <button
                   key={emoji}
@@ -602,34 +603,35 @@ export const HelpBot: React.FC = () => {
             <div className="flex items-center gap-2 shrink-0">
               <button
                 onClick={handleCancelRecording}
-                className="bg-slate-800 hover:bg-red-600 text-red-400 hover:text-white rounded-lg px-3 py-2.5 transition-colors shrink-0"
+                className="pixel-btn bg-mc-panel-light hover:bg-mc-redstone text-mc-redstone hover:text-white px-3 py-2.5 shrink-0"
                 title="Удалить запись"
               >
-                🗑
+                <IconTrash className="w-4 h-4" />
               </button>
               <button
                 onClick={handlePauseResume}
-                className="flex-1 bg-slate-800 hover:bg-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-200 flex items-center justify-center gap-2 transition-colors"
+                className="pixel-btn flex-1 bg-mc-panel-light px-3 py-2.5 text-xs text-mc-cream flex items-center justify-center gap-2"
               >
-                {isPaused ? '▶️ Возобновить' : '⏸️ Пауза'} · {formatDuration(recordingSeconds)}
+                {isPaused ? <IconPlay className="w-4 h-4" /> : <IconPause className="w-4 h-4" />}
+                {isPaused ? 'Возобновить' : 'Пауза'} · {formatDuration(recordingSeconds)}
               </button>
               <button
                 onClick={stopRecording}
-                className="bg-emerald-600 hover:bg-emerald-500 text-white rounded-full w-10 h-10 flex items-center justify-center transition-colors shrink-0"
+                className="pixel-btn bg-mc-emerald text-white w-10 h-10 flex items-center justify-center shrink-0"
                 title="Отправить"
               >
-                ➤
+                <IconSend className="w-4 h-4" />
               </button>
             </div>
           ) : (
             <div className="shrink-0">
               {isRecording && (
-                <p className="text-slate-500 text-[11px] text-center pb-1.5">
+                <p className="text-mc-cream/50 text-[9px] text-center pb-1.5">
                   ↑ Вверх — блокировка · ← Влево — отмена · отпустите — отправить
                 </p>
               )}
               <div className="flex items-center gap-2">
-                <div className="flex-1 flex items-center gap-1.5 bg-slate-800 border border-slate-700 rounded-full pl-3 pr-1.5 py-1 focus-within:border-indigo-500 min-w-0">
+                <div className="pixel-tile flex-1 flex items-center gap-1.5 pl-3 pr-1.5 py-1 min-w-0">
                   <button
                     onClick={() => setShowEmoji((v) => !v)}
                     disabled={isRecording}
@@ -649,7 +651,7 @@ export const HelpBot: React.FC = () => {
                     onFocus={() => setShowEmoji(false)}
                     placeholder="Ваш вопрос..."
                     disabled={isRecording}
-                    className="flex-1 bg-transparent text-slate-100 text-sm outline-none min-w-0 py-2 disabled:opacity-50"
+                    className="flex-1 bg-transparent text-mc-cream text-xs outline-none min-w-0 py-2 disabled:opacity-50"
                   />
 
                   <input
@@ -662,9 +664,9 @@ export const HelpBot: React.FC = () => {
                   <button
                     onClick={() => fileInputRef.current?.click()}
                     disabled={uploading || isRecording}
-                    className="shrink-0 text-base leading-none disabled:opacity-50"
+                    className="shrink-0 leading-none disabled:opacity-50"
                   >
-                    📎
+                    <IconPaperclip className="w-4 h-4" />
                   </button>
 
                   <input
@@ -678,18 +680,18 @@ export const HelpBot: React.FC = () => {
                   <button
                     onClick={() => cameraInputRef.current?.click()}
                     disabled={uploading || isRecording}
-                    className="shrink-0 text-base leading-none disabled:opacity-50 pr-1"
+                    className="shrink-0 leading-none disabled:opacity-50 pr-1"
                   >
-                    📸
+                    <IconCamera className="w-4 h-4" />
                   </button>
                 </div>
 
                 {input.trim() && !isRecording ? (
                   <button
                     onClick={handleSend}
-                    className="bg-indigo-600 hover:bg-indigo-500 text-white rounded-full w-11 h-11 flex items-center justify-center shrink-0 transition-colors text-lg"
+                    className="pixel-btn bg-mc-emerald text-white w-11 h-11 flex items-center justify-center shrink-0"
                   >
-                    ➤
+                    <IconSend className="w-5 h-5" />
                   </button>
                 ) : (
                   <button
@@ -698,26 +700,26 @@ export const HelpBot: React.FC = () => {
                     onPointerCancel={handleMicPointerUp}
                     onPointerMove={handleMicPointerMove}
                     onTouchStart={(e) => e.preventDefault()}
-                    className={`rounded-full w-11 h-11 flex items-center justify-center shrink-0 select-none transition-colors ${
+                    className={`pixel-btn w-11 h-11 flex items-center justify-center shrink-0 select-none ${
                       isRecording
-                        ? 'bg-red-600 text-white text-xs font-mono'
-                        : 'bg-slate-800 hover:bg-slate-700 text-slate-200 text-lg'
+                        ? 'bg-mc-redstone text-white text-xs font-mono'
+                        : 'bg-mc-panel-light text-mc-cream'
                     }`}
                   >
-                    {isRecording ? formatDuration(recordingSeconds) : '🎤'}
+                    {isRecording ? formatDuration(recordingSeconds) : <IconMic className="w-5 h-5" />}
                   </button>
                 )}
               </div>
             </div>
           )}
-          {recordError && <p className="text-red-400 text-xs mt-1 shrink-0">{recordError}</p>}
+          {recordError && <p className="text-mc-redstone text-[10px] mt-1 shrink-0">{recordError}</p>}
 
           {uploadPreview && (
             <div className="relative mt-2 shrink-0 inline-block">
               {uploadPreview.type === 'image' ? (
-                <img src={uploadPreview.url} alt="превью" className="rounded-lg max-h-40 opacity-20" />
+                <img src={uploadPreview.url} alt="превью" className="max-h-40 opacity-20" />
               ) : (
-                <video src={uploadPreview.url} className="rounded-lg max-h-40 opacity-20" />
+                <video src={uploadPreview.url} className="max-h-40 opacity-20" />
               )}
               <div className="absolute inset-0 flex items-center justify-center">
                 <div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full animate-spin" />

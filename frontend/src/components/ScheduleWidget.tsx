@@ -18,15 +18,15 @@ const SCHEDULE: ScheduleItem[] = [
 
 export const ScheduleWidget: React.FC = () => {
   return (
-    <div className="bg-slate-950 border border-slate-800 rounded-xl p-4">
-      <p className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-3">
+    <div className="pixel-panel p-4">
+      <p className="text-mc-cream/60 text-[10px] font-medium uppercase tracking-wider mb-3">
         Программа конференции
       </p>
       <div className="flex flex-col gap-2.5">
         {SCHEDULE.map((item, i) => (
           <div key={i} className="flex items-start gap-3">
-            <span className="text-indigo-400 text-xs font-mono shrink-0 mt-0.5">{item.time}</span>
-            <span className="text-slate-300 text-xs">{item.title}</span>
+            <span className="text-mc-gold text-[10px] shrink-0 mt-0.5">{item.time}</span>
+            <span className="text-mc-cream/80 text-[10px]">{item.title}</span>
           </div>
         ))}
       </div>

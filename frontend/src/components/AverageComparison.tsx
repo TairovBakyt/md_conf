@@ -31,20 +31,20 @@ export const AverageComparison: React.FC<AverageComparisonProps> = ({ myScore })
   const diff = myScore - average;
 
   return (
-    <div className="bg-slate-950 border border-slate-800 rounded-xl p-4">
-      <p className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-3">
+    <div className="pixel-panel p-4">
+      <p className="text-mc-cream/60 text-[10px] font-medium uppercase tracking-wider mb-3">
         Вы против среднего
       </p>
 
       <div className="flex flex-col gap-3">
         <div>
           <div className="flex items-center justify-between mb-1">
-            <span className="text-slate-300 text-xs">Вы</span>
-            <span className="text-indigo-400 text-xs font-medium">{myScore}</span>
+            <span className="text-mc-cream/80 text-[10px]">Вы</span>
+            <span className="text-mc-gold text-[10px] font-medium">{myScore}</span>
           </div>
-          <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
+          <div className="pixel-track h-2.5 overflow-hidden">
             <div
-              className="h-full bg-gradient-to-r from-indigo-500 to-cyan-400 rounded-full transition-all duration-500"
+              className="pixel-fill-gold h-full transition-all duration-500"
               style={{ width: `${(myScore / maxValue) * 100}%` }}
             />
           </div>
@@ -52,19 +52,19 @@ export const AverageComparison: React.FC<AverageComparisonProps> = ({ myScore })
 
         <div>
           <div className="flex items-center justify-between mb-1">
-            <span className="text-slate-300 text-xs">Среднее по всем</span>
-            <span className="text-slate-400 text-xs font-medium">{average}</span>
+            <span className="text-mc-cream/80 text-[10px]">Среднее по всем</span>
+            <span className="text-mc-cream/50 text-[10px] font-medium">{average}</span>
           </div>
-          <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
+          <div className="pixel-track h-2.5 overflow-hidden">
             <div
-              className="h-full bg-slate-600 rounded-full transition-all duration-500"
+              className="pixel-fill h-full transition-all duration-500"
               style={{ width: `${(average / maxValue) * 100}%` }}
             />
           </div>
         </div>
       </div>
 
-      <p className={`text-xs mt-3 ${diff >= 0 ? 'text-emerald-400' : 'text-slate-500'}`}>
+      <p className={`text-[10px] mt-3 ${diff >= 0 ? 'text-mc-emerald' : 'text-mc-cream/50'}`}>
         {diff > 0 && `Вы выше среднего на ${diff} баллов`}
         {diff === 0 && 'Вы точно на среднем уровне'}
         {diff < 0 && `До среднего не хватает ${Math.abs(diff)} баллов`}

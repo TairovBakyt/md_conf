@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
+import { IconQr } from './icons';
 
 interface QrZoneProps {
   userId: string;
@@ -12,9 +13,9 @@ export const QrZone: React.FC<QrZoneProps> = ({ userId }) => {
     <>
       <button
         onClick={() => setIsOpen(true)}
-        className="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium rounded-2xl py-3 transition-colors flex items-center justify-center gap-2"
+        className="pixel-btn w-full bg-mc-wood text-mc-cream font-medium py-3 flex items-center justify-center gap-2"
       >
-        📱 Мой QR
+        <IconQr className="w-5 h-5 shrink-0" /> Мой QR
       </button>
 
       {isOpen && (
@@ -23,14 +24,14 @@ export const QrZone: React.FC<QrZoneProps> = ({ userId }) => {
           onClick={() => setIsOpen(false)}
         >
           <div
-            className="bg-slate-900 border border-slate-700 rounded-2xl p-6 flex flex-col items-center max-w-xs w-full"
+            className="pixel-panel p-6 flex flex-col items-center max-w-xs w-full"
             onClick={(e) => e.stopPropagation()}
           >
-            <p className="text-slate-300 text-sm text-center mb-4">
+            <p className="text-mc-cream/80 text-xs text-center mb-4 leading-relaxed">
               Покажи этот QR-код волонтеру на станции для начисления баллов
             </p>
 
-            <div className="p-4 bg-white rounded-xl shadow-inner">
+            <div className="pixel-badge p-4 bg-white">
               <QRCodeSVG
                 value={userId}
                 size={180}
@@ -40,11 +41,11 @@ export const QrZone: React.FC<QrZoneProps> = ({ userId }) => {
               />
             </div>
 
-            <span className="text-slate-500 text-xs font-mono mt-3">ID: {userId}</span>
+            <span className="text-mc-cream/50 text-[10px] font-mono mt-3">ID: {userId}</span>
 
             <button
               onClick={() => setIsOpen(false)}
-              className="w-full mt-5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium rounded-lg py-2.5 text-sm transition-colors"
+              className="pixel-btn w-full mt-5 bg-mc-panel-light text-mc-cream font-medium py-2.5 text-xs"
             >
               Закрыть
             </button>

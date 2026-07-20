@@ -49,22 +49,22 @@ const STATIONS: Station[] = [
 export const StationsInfo: React.FC = () => {
   return (
     <div className="w-full max-w-md mx-auto mt-6">
-      <h2 className="text-slate-400 text-xs font-medium uppercase tracking-wider mb-2">
+      <h2 className="text-mc-cream/60 text-[10px] font-medium uppercase tracking-wider mb-2">
         Станции квеста
       </h2>
       <div className="flex flex-col gap-2">
         {STATIONS.map((station) => (
           <div
             key={station.number}
-            className="bg-slate-800/60 backdrop-blur-md border border-slate-700 rounded-xl p-3 flex items-start gap-3"
+            className="pixel-tile p-3 flex items-start gap-3"
           >
-            <div className="w-7 h-7 rounded-full bg-indigo-600 flex items-center justify-center text-xs font-semibold text-white shrink-0 mt-0.5">
+            <div className="pixel-avatar w-7 h-7 bg-mc-emerald flex items-center justify-center text-xs font-semibold text-white shrink-0 mt-0.5">
               {station.number}
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-slate-100 text-sm font-medium">{station.title}</p>
-              <p className="text-slate-400 text-xs mt-0.5 leading-relaxed">{station.description}</p>
-              <p className="text-amber-400 text-xs font-medium mt-1">{station.points}</p>
+              <p className="text-mc-cream text-xs font-medium">{station.title}</p>
+              <p className="text-mc-cream/50 text-[10px] mt-0.5 leading-relaxed">{station.description}</p>
+              <p className="text-mc-gold text-[10px] font-medium mt-1">{station.points}</p>
             </div>
           </div>
         ))}

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { API_URL } from '../config';
+import { IconCheck, IconLock, IconEmptySquare } from './icons';
 
 interface StationProgressProps {
   userId: string;
@@ -97,40 +98,40 @@ export const StationProgress: React.FC<StationProgressProps> = ({ userId, isQuiz
   const filwordLocked = !filwordPassed && !gameUnlocked.filword_unlocked;
 
   return (
-    <div className="bg-slate-950 border border-slate-800 rounded-xl p-4">
-      <p className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-3">
+    <div className="pixel-panel p-4">
+      <p className="text-mc-cream/60 text-[10px] font-medium uppercase tracking-wider mb-3">
         Прогресс по станциям
       </p>
 
       <div className="flex flex-col gap-2">
-        <div className="flex items-center gap-2.5 bg-slate-900 rounded-lg p-2.5">
-          <span className={`text-sm ${isQuizPassed ? 'text-emerald-400' : 'text-slate-600'}`}>
-            {isQuizPassed ? '✅' : quizLocked ? '🔒' : '⬜'}
+        <div className="pixel-tile flex items-center gap-2.5 p-2.5">
+          <span className={`shrink-0 ${isQuizPassed ? 'text-mc-emerald' : 'text-mc-cream/30'}`}>
+            {isQuizPassed ? <IconCheck className="w-4 h-4" /> : quizLocked ? <IconLock className="w-4 h-4" /> : <IconEmptySquare className="w-4 h-4" />}
           </span>
           <div className="min-w-0">
-            <p className={`text-xs truncate ${isQuizPassed ? 'text-slate-200' : 'text-slate-500'}`}>
+            <p className={`text-[10px] truncate ${isQuizPassed ? 'text-mc-cream' : 'text-mc-cream/50'}`}>
               2. Hardcore QA
             </p>
             {isQuizPassed ? (
-              <p className="text-[10px] text-emerald-500/80">Пройдена · +{quizPoints} баллов</p>
+              <p className="text-[9px] text-mc-emerald/80">Пройдена · +{quizPoints} баллов</p>
             ) : quizLocked ? (
-              <p className="text-[10px] text-slate-600">Закрыта</p>
+              <p className="text-[9px] text-mc-cream/30">Закрыта</p>
             ) : null}
           </div>
         </div>
 
-        <div className="flex items-center gap-2.5 bg-slate-900 rounded-lg p-2.5">
-          <span className={`text-sm ${filwordPassed ? 'text-emerald-400' : 'text-slate-600'}`}>
-            {filwordPassed ? '✅' : filwordLocked ? '🔒' : '⬜'}
+        <div className="pixel-tile flex items-center gap-2.5 p-2.5">
+          <span className={`shrink-0 ${filwordPassed ? 'text-mc-emerald' : 'text-mc-cream/30'}`}>
+            {filwordPassed ? <IconCheck className="w-4 h-4" /> : filwordLocked ? <IconLock className="w-4 h-4" /> : <IconEmptySquare className="w-4 h-4" />}
           </span>
           <div className="min-w-0">
-            <p className={`text-xs truncate ${filwordPassed ? 'text-slate-200' : 'text-slate-500'}`}>
+            <p className={`text-[10px] truncate ${filwordPassed ? 'text-mc-cream' : 'text-mc-cream/50'}`}>
               4. Word Researcher
             </p>
             {filwordPassed ? (
-              <p className="text-[10px] text-emerald-500/80">Пройдена · +{filwordPoints} баллов</p>
+              <p className="text-[9px] text-mc-emerald/80">Пройдена · +{filwordPoints} баллов</p>
             ) : filwordLocked ? (
-              <p className="text-[10px] text-slate-600">Закрыта</p>
+              <p className="text-[9px] text-mc-cream/30">Закрыта</p>
             ) : null}
           </div>
         </div>
@@ -139,13 +140,13 @@ export const StationProgress: React.FC<StationProgressProps> = ({ userId, isQuiz
           const title = MANUAL_STATION_TITLES[station.stationNumber] ?? `Станция ${station.stationNumber}`;
           const isObjectHunt = station.stationNumber === OBJECT_HUNT_STATION;
 
-          let icon = '🔲';
+          let icon = <IconEmptySquare className="w-4 h-4" />;
           let statusText = 'Отмечает организатор';
-          let titleClass = 'text-slate-500';
+          let titleClass = 'text-mc-cream/50';
 
           if (station.completed) {
-            icon = '✅';
-            titleClass = 'text-slate-200';
+            icon = <IconCheck className="w-4 h-4" />;
+            titleClass = 'text-mc-cream';
             if (isObjectHunt) {
               statusText = `Найдено ${station.count} из ${OBJECT_HUNT_TOTAL} · +${station.points} баллов`;
             } else {
@@ -155,21 +156,21 @@ export const StationProgress: React.FC<StationProgressProps> = ({ userId, isQuiz
                   : `Пройдена · +${station.points} баллов`;
             }
           } else if (!station.unlocked) {
-            icon = '🔒';
+            icon = <IconLock className="w-4 h-4" />;
             statusText = 'Закрыта';
           } else {
-            icon = '🔲';
+            icon = <IconEmptySquare className="w-4 h-4" />;
             statusText = isObjectHunt ? `Найдено 0 из ${OBJECT_HUNT_TOTAL}` : 'Отмечает организатор';
           }
 
           return (
-            <div key={station.stationNumber} className="flex items-center gap-2.5 bg-slate-900 rounded-lg p-2.5">
-              <span className={`text-sm ${station.completed ? 'text-emerald-400' : 'text-slate-600'}`}>{icon}</span>
+            <div key={station.stationNumber} className="pixel-tile flex items-center gap-2.5 p-2.5">
+              <span className={`shrink-0 ${station.completed ? 'text-mc-emerald' : 'text-mc-cream/30'}`}>{icon}</span>
               <div className="min-w-0">
-                <p className={`text-xs truncate ${titleClass}`}>
+                <p className={`text-[10px] truncate ${titleClass}`}>
                   {station.stationNumber}. {title}
                 </p>
-                <p className={`text-[10px] ${station.completed ? 'text-emerald-500/80' : 'text-slate-600'}`}>
+                <p className={`text-[9px] ${station.completed ? 'text-mc-emerald/80' : 'text-mc-cream/30'}`}>
                   {statusText}
                 </p>
               </div>
