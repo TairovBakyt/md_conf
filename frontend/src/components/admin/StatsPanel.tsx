@@ -14,7 +14,7 @@ interface LeaderboardEntry {
   score: number;
 }
 
-export const StatsPanel: React.FC = () => {
+const StatsPanelComponent: React.FC = () => {
   const [stats, setStats] = useState<Stats | null>(null);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [sosCount, setSosCount] = useState(0);
@@ -128,5 +128,7 @@ export const StatsPanel: React.FC = () => {
     </div>
   );
 };
+
+export const StatsPanel = React.memo(StatsPanelComponent);
 
 export default StatsPanel;

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { FixedSizeList as List } from 'react-window';
 import { useUser } from '../../authorization/UserContext';
 import { API_URL } from '../../config';
 import { useSmartPolling } from '../../hooks/useSmartPolling';
@@ -18,6 +19,8 @@ interface FullParticipant {
 type SubTab = 'search' | 'fullList';
 
 const RECOVERY_STORAGE_KEY = 'admin_recovery_state';
+const ROW_HEIGHT = 56; // фиксированная высота строки — обязательна для FixedSizeList
+const LIST_HEIGHT = 420; // высота видимого окна списка (~7-8 строк)
 
 interface PersistedRecoveryState {
   subTab: SubTab;
@@ -56,7 +59,7 @@ export const AdminRecoveryView: React.FC = () => {
   const [fullListLoading, setFullListLoading] = useState(false);
   const [fullListFilter, setFullListFilter] = useState(persistedRecovery.fullListFilter);
   const [revealedId, setRevealedId] = useState<string | null>(persistedRecovery.revealedId);
-  
+
   // Состояние для блокировки кнопки удаления во время запроса
   const [deleteBusy, setDeleteBusy] = useState(false);
 
@@ -125,10 +128,7 @@ export const AdminRecoveryView: React.FC = () => {
   };
 
   // ФУНКЦИЯ УДАЛЕНИЯ УЧАСТНИКА
-  const handleDeleteParticipant = async (targetId: string, targetUsername: string, e: React.MouseEvent) => {
-    // Останавливаем всплытие события, чтобы клик по кнопке не закрывал плашку обратно
-    e.stopPropagation();
-
+  const handleDeleteParticipant = async (targetId: string, targetUsername: string) => {
     if (!user) return;
     if (!confirm(`Вы ОКОНЧАТЕЛЬНО уверены, что хотите удалить участника «${targetUsername}»? \nВсе его баллы и история будут стерты навсегда!`)) {
       return;
@@ -150,7 +150,7 @@ export const AdminRecoveryView: React.FC = () => {
       }
 
       alert(`Участник «${targetUsername}» успешно удален.`);
-      
+
       // Вырезаем его из списка на экране
       setFullList((prev) => prev.filter((p) => p.id !== targetId));
       setRevealedId(null);
@@ -175,7 +175,7 @@ export const AdminRecoveryView: React.FC = () => {
     }
   };
 
- // Сразу загружаем данные один раз при смене вкладки
+  // Сразу загружаем данные один раз при смене вкладки
   useEffect(() => {
     if (subTab === 'fullList') {
       fetchFullList();
@@ -209,6 +209,29 @@ export const AdminRecoveryView: React.FC = () => {
       p.username.toLowerCase().includes(fullListFilter.toLowerCase()) ||
       p.id.includes(fullListFilter)
   );
+
+  const revealedParticipant = filteredFullList.find((p) => p.id === revealedId) ?? null;
+
+  // Одна строка виртуализированного списка — react-window передаёт style
+  // с абсолютным позиционированием, обязательно применить его к корню.
+  const ParticipantRow: React.FC<{ index: number; style: React.CSSProperties }> = ({ index, style }) => {
+    const p = filteredFullList[index];
+    const isRevealed = revealedId === p.id;
+    return (
+      <div style={style} className="px-0.5">
+        <button
+          onClick={() => setRevealedId(isRevealed ? null : p.id)}
+          className={`w-full text-left bg-slate-800 hover:bg-slate-700 rounded-lg px-3 flex items-center justify-between transition-colors ${
+            isRevealed ? 'ring-2 ring-indigo-500' : ''
+          }`}
+          style={{ height: ROW_HEIGHT - 6 }}
+        >
+          <span className="text-slate-100 text-sm font-medium truncate">{p.username}</span>
+          <span className="text-slate-500 text-xs shrink-0 ml-2">{p.total_score} баллов</span>
+        </button>
+      </div>
+    );
+  };
 
   return (
     <div className="w-full max-w-xl mx-auto bg-slate-950 rounded-2xl p-5">
@@ -329,41 +352,42 @@ export const AdminRecoveryView: React.FC = () => {
 
           {fullListLoading ? (
             <p className="text-slate-500 text-sm text-center py-6">Загружаем...</p>
+          ) : filteredFullList.length === 0 ? (
+            <p className="text-slate-600 text-xs text-center py-6">Ничего не найдено</p>
           ) : (
-            <div className="flex flex-col gap-1.5 max-h-96 overflow-y-auto">
-              {filteredFullList.map((p) => (
-                <div
-                  key={p.id}
-                  onClick={() => setRevealedId(revealedId === p.id ? null : p.id)}
-                  className="bg-slate-800 rounded-lg p-3 cursor-pointer"
+            <List
+              height={LIST_HEIGHT}
+              itemCount={filteredFullList.length}
+              itemSize={ROW_HEIGHT}
+              width="100%"
+              className="mb-3"
+            >
+              {ParticipantRow}
+            </List>
+          )}
+
+          {revealedParticipant && (
+            <div className="bg-slate-800 rounded-xl p-3 flex items-end justify-between gap-4 border border-indigo-500/40">
+              <div className="min-w-0">
+                <p className="text-slate-100 text-sm font-medium truncate mb-1">{revealedParticipant.username}</p>
+                <p className="text-slate-400 text-xs font-mono">ID: {revealedParticipant.id}</p>
+                <p className="text-amber-400 text-xs font-mono font-semibold">PIN: {revealedParticipant.pin_code}</p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={() => setRevealedId(null)}
+                  className="text-slate-500 hover:text-slate-300 text-xs px-2 py-1.5"
                 >
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-100 text-sm font-medium">{p.username}</span>
-                    <span className="text-slate-500 text-xs">{p.total_score} баллов</span>
-                  </div>
-                  
-                  {revealedId === p.id && (
-                    <div className="flex items-end justify-between mt-2 pt-2 border-t border-slate-700 gap-4">
-                      <div className="flex flex-col gap-0.5">
-                        <span className="text-slate-400 text-xs font-mono">ID: {p.id}</span>
-                        <span className="text-amber-400 text-xs font-mono font-semibold">PIN: {p.pin_code}</span>
-                      </div>
-                      
-                      {/* КНОПКА УДАЛЕНИЯ */}
-                      <button
-                        onClick={(e) => handleDeleteParticipant(p.id, p.username, e)}
-                        disabled={deleteBusy}
-                        className="bg-red-950/40 hover:bg-red-650 border border-red-900/50 text-red-400 hover:text-white text-[11px] font-semibold rounded-md px-2.5 py-1.5 transition-colors disabled:opacity-40 cursor-pointer"
-                      >
-                        {deleteBusy ? 'Удаление...' : 'Удалить'}
-                      </button>
-                    </div>
-                  )}
-                </div>
-              ))}
-              {filteredFullList.length === 0 && (
-                <p className="text-slate-600 text-xs text-center py-6">Ничего не найдено</p>
-              )}
+                  Закрыть
+                </button>
+                <button
+                  onClick={() => handleDeleteParticipant(revealedParticipant.id, revealedParticipant.username)}
+                  disabled={deleteBusy}
+                  className="bg-red-950/40 hover:bg-red-650 border border-red-900/50 text-red-400 hover:text-white text-[11px] font-semibold rounded-md px-2.5 py-1.5 transition-colors disabled:opacity-40 cursor-pointer"
+                >
+                  {deleteBusy ? 'Удаление...' : 'Удалить'}
+                </button>
+              </div>
             </div>
           )}
         </>

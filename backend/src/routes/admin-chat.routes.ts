@@ -20,6 +20,11 @@ router.get('/admins/:selfId', async (req: Request, res: Response) => {
 router.get('/inbox/:selfId', async (req: Request, res: Response) => {
   const { selfId } = req.params;
   try {
+    // Один проход через LATERAL вместо трёх коррелированных подзапросов
+    // на каждого админа (было: 1 + N×3 запросов). UNION ALL внутри LATERAL
+    // позволяет планировщику Postgres задействовать оба направленных
+    // индекса (idx_admin_messages_sender / idx_admin_messages_recipient)
+    // вместо полного скана таблицы на каждую строку users.
     const result = await pool.query(
       `
       SELECT
@@ -27,38 +32,31 @@ router.get('/inbox/:selfId', async (req: Request, res: Response) => {
         u.username,
         u.admin_permissions,
         u.is_main_admin,
-        (
-          SELECT COALESCE(message, '📎 вложение')
-          FROM admin_messages
-          WHERE ((sender_id = $1 AND recipient_id = u.id) OR (sender_id = u.id AND recipient_id = $1))
-            AND NOT (
-              (sender_id = $1 AND hidden_from_sender) OR (recipient_id = $1 AND hidden_from_recipient)
-            )
-          ORDER BY created_at DESC LIMIT 1
-        ) AS last_message,
-        (
-          SELECT created_at
-          FROM admin_messages
-          WHERE ((sender_id = $1 AND recipient_id = u.id) OR (sender_id = u.id AND recipient_id = $1))
-            AND NOT (
-              (sender_id = $1 AND hidden_from_sender) OR (recipient_id = $1 AND hidden_from_recipient)
-            )
-          ORDER BY created_at DESC LIMIT 1
-        ) AS last_at,
-        (
-          SELECT COUNT(*) FROM admin_messages
-          WHERE sender_id = u.id AND recipient_id = $1 AND is_read = false AND hidden_from_recipient = false
-        ) AS unread_count
+        COALESCE(last_msg.message, '📎 вложение') AS last_message,
+        last_msg.created_at AS last_at,
+        COALESCE(unread.count, 0) AS unread_count
       FROM users u
+      JOIN LATERAL (
+        SELECT message, created_at
+        FROM (
+          SELECT message, created_at
+          FROM admin_messages
+          WHERE sender_id = $1 AND recipient_id = u.id AND hidden_from_sender = false
+          UNION ALL
+          SELECT message, created_at
+          FROM admin_messages
+          WHERE sender_id = u.id AND recipient_id = $1 AND hidden_from_recipient = false
+        ) both_directions
+        ORDER BY created_at DESC
+        LIMIT 1
+      ) last_msg ON true
+      LEFT JOIN LATERAL (
+        SELECT COUNT(*) AS count
+        FROM admin_messages
+        WHERE sender_id = u.id AND recipient_id = $1 AND is_read = false AND hidden_from_recipient = false
+      ) unread ON true
       WHERE u.is_admin = true AND u.id != $1
-        AND EXISTS (
-          SELECT 1 FROM admin_messages
-          WHERE ((sender_id = $1 AND recipient_id = u.id) OR (sender_id = u.id AND recipient_id = $1))
-            AND NOT (
-              (sender_id = $1 AND hidden_from_sender) OR (recipient_id = $1 AND hidden_from_recipient)
-            )
-        )
-      ORDER BY last_at DESC
+      ORDER BY last_msg.created_at DESC
       `,
       [selfId]
     );

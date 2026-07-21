@@ -19,7 +19,7 @@ function timeAgo(dateStr: string): string {
   return `${hours} ч назад`;
 }
 
-export const ActivityFeed: React.FC = () => {
+const ActivityFeedComponent: React.FC = () => {
   const [items, setItems] = useState<ActivityItem[]>([]);
 
   const fetchActivity = async () => {
@@ -94,5 +94,7 @@ export const ActivityFeed: React.FC = () => {
     </div>
   );
 };
+
+export const ActivityFeed = React.memo(ActivityFeedComponent);
 
 export default ActivityFeed;

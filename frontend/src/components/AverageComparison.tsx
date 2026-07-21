@@ -6,7 +6,7 @@ interface AverageComparisonProps {
   myScore: number;
 }
 
-export const AverageComparison: React.FC<AverageComparisonProps> = ({ myScore }) => {
+const AverageComparisonComponent: React.FC<AverageComparisonProps> = ({ myScore }) => {
   const [average, setAverage] = useState<number | null>(null);
 
   const fetchStats = async () => {
@@ -74,5 +74,7 @@ export const AverageComparison: React.FC<AverageComparisonProps> = ({ myScore })
     </div>
   );
 };
+
+export const AverageComparison = React.memo(AverageComparisonComponent);
 
 export default AverageComparison;

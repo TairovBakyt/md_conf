@@ -8,7 +8,7 @@ interface TierStats {
   high: number;
 }
 
-export const PrizeDonut: React.FC = () => {
+const PrizeDonutComponent: React.FC = () => {
   const [stats, setStats] = useState<TierStats>({ low: 0, middle: 0, high: 0 });
 
   const fetchData = async () => {
@@ -87,5 +87,7 @@ export const PrizeDonut: React.FC = () => {
     </div>
   );
 };
+
+export const PrizeDonut = React.memo(PrizeDonutComponent);
 
 export default PrizeDonut;

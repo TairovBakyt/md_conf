@@ -314,8 +314,10 @@ export const AdminPanel: React.FC = () => {
             </AnimatePresence>
           </Suspense>
 
-          {/* Только десктоп — здесь PrizeDonut идёт сразу под контентом в средней колонке */}
-          <div className="hidden xl:block w-full">
+          {/* Только десктоп — здесь PrizeDonut идёт сразу под контентом в средней колонке.
+              flex + justify-center вместо простого block — центрирует блок вместо
+              прижатия к левому краю (у PrizeDonut нет mx-auto в собственных классах). */}
+          <div className="hidden xl:flex w-full justify-center">
             <PrizeDonut />
           </div>
         </div>

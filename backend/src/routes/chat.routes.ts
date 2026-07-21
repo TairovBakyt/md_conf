@@ -70,27 +70,32 @@ router.get('/:userId', async (req: Request, res: Response) => {
 // ----------------------------------------------------
 router.get('/admin/inbox', async (req: Request, res: Response) => {
   try {
+    // Один проход вместо трёх подзапросов на каждого пользователя: LATERAL
+    // джойнит последнее непустое сообщение и unread_count разом за один
+    // скан индекса idx_chat_messages_user_created на пользователя, вместо
+    // трёх отдельных запросов на строку (было: 1 + N×3 запросов).
     const result = await pool.query(`
       SELECT
         u.id AS user_id,
         u.username,
-        (SELECT COALESCE(message, '📎 вложение') 
-         FROM chat_messages 
-         WHERE user_id = u.id AND (hidden_from_admin = false OR hidden_from_admin IS NULL)
-         ORDER BY created_at DESC LIMIT 1) AS last_message,
-        (SELECT created_at 
-         FROM chat_messages 
-         WHERE user_id = u.id AND (hidden_from_admin = false OR hidden_from_admin IS NULL)
-         ORDER BY created_at DESC LIMIT 1) AS last_at,
-        (SELECT COUNT(*) 
-         FROM chat_messages 
-         WHERE user_id = u.id AND sender = 'participant' AND is_read = false AND (hidden_from_admin = false OR hidden_from_admin IS NULL)) AS unread_count
+        COALESCE(last_msg.message, '📎 вложение') AS last_message,
+        last_msg.created_at AS last_at,
+        COALESCE(unread.count, 0) AS unread_count
       FROM users u
-      WHERE EXISTS (
-        SELECT 1 FROM chat_messages 
+      JOIN LATERAL (
+        SELECT message, created_at
+        FROM chat_messages
         WHERE user_id = u.id AND (hidden_from_admin = false OR hidden_from_admin IS NULL)
-      )
-      ORDER BY last_at DESC
+        ORDER BY created_at DESC
+        LIMIT 1
+      ) last_msg ON true
+      LEFT JOIN LATERAL (
+        SELECT COUNT(*) AS count
+        FROM chat_messages
+        WHERE user_id = u.id AND sender = 'participant' AND is_read = false
+          AND (hidden_from_admin = false OR hidden_from_admin IS NULL)
+      ) unread ON true
+      ORDER BY last_msg.created_at DESC
     `);
     return res.json(result.rows.map((r) => ({
       userId: r.user_id,

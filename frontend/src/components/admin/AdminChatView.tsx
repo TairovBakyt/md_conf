@@ -3,9 +3,12 @@ import { useSmartPolling } from '../../hooks/useSmartPolling';
 import { useUser } from '../../authorization/UserContext';
 import { API_URL } from '../../config';
 import { type AdminTabId } from '../../adminTabs';
+import { uploadToCloudinary } from '../../utils/cloudinaryUpload';
 
 const LONG_PRESS_MS = 550;
 const TAP_THRESHOLD_MS = 200;
+
+const MAX_VIDEO_SIZE_MB = 15;
 
 function renderMessageText(text: string): React.ReactNode[] {
   const parts = text.split(/(https?:\/\/[^\s]+)/g);
@@ -27,14 +30,7 @@ function renderMessageText(text: string): React.ReactNode[] {
   );
 }
 
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
+
 
 function AccessBadge({
   permissions,
@@ -358,14 +354,23 @@ export const AdminChatView: React.FC = () => {
     const file = e.target.files?.[0];
     if (!file) return;
     const type = file.type.startsWith('video') ? 'video' : 'image';
+
+    if (type === 'video' && file.size > MAX_VIDEO_SIZE_MB * 1024 * 1024) {
+      alert(`Видео слишком большое (макс. ${MAX_VIDEO_SIZE_MB} МБ) — попробуйте снять покороче`);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      if (cameraInputRef.current) cameraInputRef.current.value = '';
+      return;
+    }
+
     const previewUrl = URL.createObjectURL(file);
     setUploadPreview({ url: previewUrl, type });
     setUploading(true);
     try {
-      const base64 = await fileToBase64(file);
-      await sendMessage(null, type, base64);
+      const url = await uploadToCloudinary(file, type, file.name);
+      await sendMessage(null, type, url);
     } catch (err) {
       console.error(err);
+      alert('Не удалось загрузить файл — проверьте интернет и попробуйте снова');
     } finally {
       setUploading(false);
       setUploadPreview(null);
@@ -415,12 +420,12 @@ export const AdminChatView: React.FC = () => {
         }
 
         const blob = new Blob(audioChunksRef.current, { type: mimeType || 'audio/webm' });
-        const reader = new FileReader();
-        reader.onload = () => {
-          sendMessage(null, 'audio', reader.result as string);
-        };
-        reader.onerror = () => setRecordError('Не удалось обработать запись');
-        reader.readAsDataURL(blob);
+        uploadToCloudinary(blob, 'audio', 'voice-message.webm')
+          .then((url) => sendMessage(null, 'audio', url))
+          .catch((err) => {
+            console.error(err);
+            setRecordError('Не удалось загрузить запись — проверьте интернет');
+          });
       };
       recorder.onerror = () => {
         setRecordError('Ошибка записи');

@@ -16,7 +16,7 @@ const SCHEDULE: ScheduleItem[] = [
   { time: '18:00', title: 'Награждение и afterparty' },
 ];
 
-export const ScheduleWidget: React.FC = () => {
+const ScheduleWidgetComponent: React.FC = () => {
   return (
     <div className="bg-slate-950 border border-slate-800 rounded-xl p-4">
       <p className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-3">
@@ -33,5 +33,7 @@ export const ScheduleWidget: React.FC = () => {
     </div>
   );
 };
+
+export const ScheduleWidget = React.memo(ScheduleWidgetComponent);
 
 export default ScheduleWidget;

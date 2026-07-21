@@ -7,7 +7,7 @@ interface LeaderboardEntry {
   score: number;
 }
 
-export const LiveLeaderboard: React.FC = () => {
+const LiveLeaderboardComponent: React.FC = () => {
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
 
   const fetchData = async () => {
@@ -55,5 +55,7 @@ export const LiveLeaderboard: React.FC = () => {
     </div>
   );
 };
+
+export const LiveLeaderboard = React.memo(LiveLeaderboardComponent);
 
 export default LiveLeaderboard;

@@ -30,7 +30,7 @@ interface GameUnlockState {
   filword_unlocked: boolean;
 }
 
-export const StationProgress: React.FC<StationProgressProps> = ({ userId, isQuizPassed }) => {
+const StationProgressComponent: React.FC<StationProgressProps> = ({ userId, isQuizPassed }) => {
   const [filwordPassed, setFilwordPassed] = useState(false);
   const [manualStations, setManualStations] = useState<StationStatus[]>([]);
   const [quizPoints, setQuizPoints] = useState(0);
@@ -182,5 +182,7 @@ export const StationProgress: React.FC<StationProgressProps> = ({ userId, isQuiz
     </div>
   );
 };
+
+export const StationProgress = React.memo(StationProgressComponent);
 
 export default StationProgress;
