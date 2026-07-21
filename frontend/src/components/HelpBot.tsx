@@ -50,8 +50,6 @@ interface ChatMessage {
   created_at: string;
 }
 
-
-
 // Черновик недописанного сообщения — переживает F5 и переключение вкладок,
 // как в ChatInbox (там на каждого собеседника отдельно, здесь собеседник
 // всегда один — администратор — поэтому ключ по своему userId).
@@ -100,7 +98,10 @@ export const HelpBot: React.FC = () => {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const mobileMessagesContainerRef = useRef<HTMLDivElement>(null);
+  const desktopMessagesContainerRef = useRef<HTMLDivElement>(null);
+  const desktopChatBlockRef = useRef<HTMLDivElement>(null);
+
   const shouldAutoScrollRef = useRef(true);
   const micPressStartRef = useRef(0);
   const micPressXRef = useRef(0);
@@ -196,22 +197,67 @@ export const HelpBot: React.FC = () => {
     };
   }, []);
 
+
+
+  // Десктоп: при открытии чата плавно прокручиваем страницу так, чтобы
+// весь блок чата (700px) оказался в поле зрения, а не открывался ниже
+// текущей позиции скролла, требуя ручной прокрутки. Только на десктопе —
+// мобильная версия открывается как полноэкранный оверлей и не нуждается
+// в прокрутке фоновой страницы.
+useEffect(() => {
+  if (!showChat) return;
+  const isMobile = window.matchMedia('(max-width: 767px)').matches;
+  if (isMobile) return;
+
+  // Небольшая задержка — блок должен успеть отрендериться и получить
+  // реальную высоту (700px) до того, как scrollIntoView посчитает позицию.
+  const timer = setTimeout(() => {
+    desktopChatBlockRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, 50);
+
+  return () => clearTimeout(timer);
+}, [showChat]);
+
   // Автопрокрутка к последнему сообщению — только если пользователь и так
-  // был внизу (или это первое открытие чата). Прокручиваем scrollTop
-  // контейнера сообщений (не scrollIntoView), чтобы не утаскивать вниз
-  // всю страницу дашборда целиком.
+  // был внизу (или это первое открытие чата). Прокручиваем scrollTop у
+  // ОБОИХ контейнеров (мобильный/десктопный) — реально смонтирован в DOM
+  // только один из них в зависимости от ширины экрана, второй просто не
+  // найдётся (ref.current === null) и молча пропускается.
   useEffect(() => {
-    if (shouldAutoScrollRef.current && messagesContainerRef.current) {
-      messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+    if (!shouldAutoScrollRef.current) return;
+    if (mobileMessagesContainerRef.current) {
+      mobileMessagesContainerRef.current.scrollTop = mobileMessagesContainerRef.current.scrollHeight;
+    }
+    if (desktopMessagesContainerRef.current) {
+      desktopMessagesContainerRef.current.scrollTop = desktopMessagesContainerRef.current.scrollHeight;
     }
   }, [messages]);
 
-  const handleMessagesScroll = () => {
-    const el = messagesContainerRef.current;
-    if (!el) return;
+  const handleMessagesScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
     const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
     shouldAutoScrollRef.current = distanceFromBottom < 80;
   };
+
+  // Полноэкранный мобильный оверлей — блокируем прокрутку фонового
+  // контента страницы, пока он открыт, чтобы свайп по чату не листал
+  // дашборд позади него. ВАЖНО: применяется только на мобильной ширине
+  // (совпадает с md:hidden брейкпоинтом оверлея, 768px) — на десктопе
+  // блок чата встроен в обычный поток страницы (не оверлей), и блокировка
+  // скролла там ошибочно не давала прокрутить страницу вниз, чтобы
+  // увидеть нижнюю часть блока высотой 650px.
+  useEffect(() => {
+    if (!showChat) return;
+
+    const isMobile = window.matchMedia('(max-width: 767px)').matches;
+    if (!isMobile) return;
+
+    const original = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = original;
+    };
+  }, [showChat]);
 
   const sendMessage = async (text: string | null, attachmentType?: string, attachmentData?: string) => {
     if (!user) return;
@@ -465,6 +511,270 @@ export const HelpBot: React.FC = () => {
     }
   };
 
+  // Список сообщений — общий рендер, используется и в мобильном оверлее,
+  // и в десктопном встроенном блоке (только один из двух реально
+  // смонтирован в DOM одновременно благодаря md:hidden / hidden md:flex).
+  const renderMessages = () => (
+    <>
+      {messages.length === 0 && (
+        <p className="text-slate-600 text-xs text-center py-2">Напишите свой вопрос ниже</p>
+      )}
+      {messages.map((m) => {
+        const isMediaOnly = !!m.attachment_type && !m.message;
+        return (
+          <div
+            key={m.id}
+            onClick={() => setRevealedId(revealedId === m.id ? null : m.id)}
+            className={`max-w-[80%] w-fit rounded-lg text-xs relative cursor-pointer ${
+              isMediaOnly ? '' : 'px-3 py-2'
+            } ${
+              isMediaOnly
+                ? 'bg-transparent'
+                : m.sender === 'participant'
+                ? 'bg-indigo-600 text-white'
+                : 'bg-slate-800 text-slate-200'
+            } ${m.sender === 'participant' ? 'self-end' : 'self-start'}`}
+          >
+            {m.attachment_type === 'image' && (
+              <img
+                src={m.attachment_data!}
+                alt="вложение"
+                onClick={(e) => { e.stopPropagation(); window.open(m.attachment_data!, '_blank'); }}
+                className="rounded-lg mb-1 cursor-pointer"
+                style={{ maxWidth: '240px', maxHeight: '320px', width: 'auto', height: 'auto', display: 'block' }}
+              />
+            )}
+            {m.attachment_type === 'video' && (
+              <video
+                src={m.attachment_data!}
+                controls
+                className="rounded-lg mb-1"
+                style={{ width: '240px', height: '320px', objectFit: 'cover', display: 'block' }}
+              />
+            )}
+            {m.attachment_type === 'audio' && (
+              <audio src={m.attachment_data!} controls className="max-w-full mb-1" />
+            )}
+
+            {editingId === m.id ? (
+              <div className="flex gap-1.5 mt-1" onClick={(e) => e.stopPropagation()}>
+                <input
+                  type="text"
+                  value={editText}
+                  onChange={(e) => setEditText(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSaveEdit(m.id)}
+                  className="flex-1 bg-slate-900 text-slate-100 text-[11px] rounded px-2 py-1 outline-none"
+                  autoFocus
+                />
+                <button onClick={() => handleSaveEdit(m.id)} className="text-emerald-400 text-xs">✓</button>
+                <button onClick={() => setEditingId(null)} className="text-slate-400 text-xs">✕</button>
+              </div>
+            ) : (
+              m.message && <span>{renderMessageText(m.message)}</span>
+            )}
+
+            {revealedId === m.id && editingId !== m.id && (
+              <div
+                className="flex gap-2 absolute -top-2 right-1 bg-slate-950 rounded px-1.5 py-0.5"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {m.sender === 'participant' && m.message && !m.attachment_type && (
+                  <button onClick={() => handleStartEdit(m)} className="text-slate-400 hover:text-slate-200 text-xs">
+                    ✎
+                  </button>
+                )}
+                <button onClick={() => handleDeleteMessage(m)} className="text-red-400 hover:text-red-300 text-xs">
+                  🗑
+                </button>
+              </div>
+            )}
+          </div>
+        );
+      })}
+      {uploadPreview && (
+        <div className="w-fit self-end rounded-lg relative overflow-hidden">
+          {uploadPreview.type === 'image' ? (
+            <img
+              src={uploadPreview.url}
+              alt="превью"
+              className="rounded-lg block"
+              style={{ maxWidth: '240px', maxHeight: '320px', width: 'auto', height: 'auto', filter: 'brightness(0.3)' }}
+            />
+          ) : (
+            <video
+              src={uploadPreview.url}
+              className="rounded-lg block"
+              style={{ width: '240px', height: '320px', objectFit: 'cover', filter: 'brightness(0.3)' }}
+            />
+          )}
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="w-10 h-10 border-4 border-white border-t-transparent rounded-full animate-spin" />
+          </div>
+        </div>
+      )}
+    </>
+  );
+
+  // Поле ввода + панель эмодзи + запись голоса — общий рендер, тоже
+  // используется и мобильной, и десктопной версией.
+  const renderComposer = () => (
+    <>
+      {showEmoji && !recordLocked && (
+        <div className="flex flex-wrap gap-1.5 mb-2 bg-slate-800 rounded-lg p-2 shrink-0">
+          {EMOJI_LIST.map((emoji) => (
+            <button
+              key={emoji}
+              onClick={() => setInput((prev) => prev + emoji)}
+              className="text-lg hover:scale-125 transition-transform"
+            >
+              {emoji}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {recordLocked ? (
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={handleCancelRecording}
+            className="bg-slate-800 hover:bg-red-600 text-red-400 hover:text-white rounded-lg px-3 py-2.5 transition-colors shrink-0"
+            title="Удалить запись"
+          >
+            🗑
+          </button>
+          <button
+            onClick={handlePauseResume}
+            className="flex-1 bg-slate-800 hover:bg-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-200 flex items-center justify-center gap-2 transition-colors"
+          >
+            {isPaused ? '▶️ Возобновить' : '⏸️ Пауза'} · {formatDuration(recordingSeconds)}
+          </button>
+          <button
+            onClick={stopRecording}
+            className="bg-emerald-600 hover:bg-emerald-500 text-white rounded-full w-10 h-10 flex items-center justify-center transition-colors shrink-0"
+            title="Отправить"
+          >
+            ➤
+          </button>
+        </div>
+      ) : (
+        <div className="shrink-0">
+          {isRecording && (
+            <p className="text-slate-500 text-[11px] text-center pb-1.5">
+              ↑ Вверх — блокировка · ← Влево — отмена · отпустите — отправить
+            </p>
+          )}
+          <div className="flex items-center gap-2">
+            <div className="flex-1 flex items-center gap-1.5 bg-slate-800 border border-slate-700 rounded-full pl-3 pr-1.5 py-1 focus-within:border-indigo-500 min-w-0">
+              <button
+                onClick={() => setShowEmoji((v) => !v)}
+                disabled={isRecording}
+                className="shrink-0 text-lg leading-none disabled:opacity-50"
+              >
+                😊
+              </button>
+
+              <input
+                type="text"
+                value={input}
+                onChange={(e) => {
+                  setInput(e.target.value);
+                  if (user) saveDraft(user.id, e.target.value);
+                }}
+                onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+                onFocus={() => setShowEmoji(false)}
+                placeholder="Ваш вопрос..."
+                disabled={isRecording}
+                className="flex-1 bg-transparent text-slate-100 text-sm outline-none min-w-0 py-2 disabled:opacity-50"
+              />
+
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*,video/*"
+                onChange={handleFileSelect}
+                className="hidden"
+              />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading || isRecording}
+                className="shrink-0 text-base leading-none disabled:opacity-50"
+              >
+                📎
+              </button>
+
+              <input
+                ref={cameraInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                onChange={handleFileSelect}
+                className="hidden"
+              />
+              <button
+                onClick={() => cameraInputRef.current?.click()}
+                disabled={uploading || isRecording}
+                className="shrink-0 text-base leading-none disabled:opacity-50 pr-1"
+              >
+                📸
+              </button>
+            </div>
+
+            {input.trim() && !isRecording ? (
+              <button
+                onClick={handleSend}
+                className="bg-indigo-600 hover:bg-indigo-500 text-white rounded-full w-11 h-11 flex items-center justify-center shrink-0 transition-colors text-lg"
+              >
+                ➤
+              </button>
+            ) : (
+              <div className="relative shrink-0">
+                {isRecording && !recordLocked && (
+                  <>
+                    {/* Дорожка вверх до замка блокировки — градиентная линия,
+                        затухающая от кнопки к иконке, с мягким свечением. */}
+                    <div className="absolute -top-16 left-1/2 -translate-x-1/2 flex flex-col items-center pointer-events-none" style={{ height: '64px' }}>
+                      <div className="relative bg-indigo-600 rounded-full w-9 h-9 flex items-center justify-center shadow-lg shadow-indigo-500/50 animate-bounce shrink-0">
+                        <span className="text-base">🔒</span>
+                      </div>
+                      <div
+                        className="flex-1 w-[2px] mt-1 rounded-full"
+                        style={{ background: 'linear-gradient(to bottom, rgba(99,102,241,0.7), rgba(99,102,241,0.05))' }}
+                      />
+                    </div>
+                    {/* Дорожка влево до отметки отмены — та же градиентная логика,
+                        затухает от кнопки к значку ✕. */}
+                    <div className="absolute top-1/2 -translate-y-1/2 right-full flex items-center pointer-events-none" style={{ width: '60px' }}>
+                      <span className="text-red-400 text-sm shrink-0 drop-shadow">✕</span>
+                      <div
+                        className="flex-1 h-[2px] ml-1.5 rounded-full"
+                        style={{ background: 'linear-gradient(to left, rgba(239,68,68,0.05), rgba(239,68,68,0.6))' }}
+                      />
+                    </div>
+                  </>
+                )}
+                <button
+                  onPointerDown={handleMicPointerDown}
+                  onPointerUp={handleMicPointerUp}
+                  onPointerCancel={handleMicPointerUp}
+                  onPointerMove={handleMicPointerMove}
+                  onTouchStart={(e) => e.preventDefault()}
+                  className={`rounded-full w-11 h-11 flex items-center justify-center select-none transition-colors relative z-10 ${
+                    isRecording
+                      ? 'bg-red-600 text-white text-xs font-mono'
+                      : 'bg-slate-800 hover:bg-slate-700 text-slate-200 text-lg'
+                  }`}
+                >
+                  {isRecording ? formatDuration(recordingSeconds) : '🎤'}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+      {recordError && <p className="text-red-400 text-xs mt-1 shrink-0">{recordError}</p>}
+    </>
+  );  
+
   return (
     <div className="w-full max-w-md mx-auto mt-6">
       <h2 className="text-slate-400 text-xs font-medium uppercase tracking-wider mb-2">
@@ -488,20 +798,51 @@ export const HelpBot: React.FC = () => {
         ))}
       </div>
 
-      {!showChat ? (
-        <button
-          onClick={() => setShowChat(true)}
-          className="relative w-full mt-3 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium rounded-xl py-2.5 text-sm transition-colors"
-        >
-          💬 Не нашли ответ? Написать администратору
-          {unreadCount > 0 && (
-            <span className="absolute -top-2 -right-2 bg-red-500 text-white text-[10px] font-bold rounded-full min-w-[20px] h-[20px] flex items-center justify-center px-1 shadow-md">
-              {unreadCount > 99 ? '99+' : unreadCount}
-            </span>
-          )}
-        </button>
-      ) : (
-        <div className="mt-3 bg-slate-950 border border-slate-800 rounded-xl p-3 h-[500px] flex flex-col">
+      <button
+        onClick={() => setShowChat(true)}
+        className="relative w-full mt-3 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium rounded-xl py-2.5 text-sm transition-colors"
+      >
+        💬 Не нашли ответ? Написать администратору
+        {unreadCount > 0 && (
+          <span className="absolute -top-2 -right-2 bg-red-500 text-white text-[10px] font-bold rounded-full min-w-[20px] h-[20px] flex items-center justify-center px-1 shadow-md">
+            {unreadCount > 99 ? '99+' : unreadCount}
+          </span>
+        )}
+      </button>
+
+      {/* Мобильный: полноэкранный оверлей (fixed inset-0, весь экран
+          устройства), закрывается кнопкой "← Назад". Скрыт на md и шире. */}
+      {showChat && (
+        <div className="md:hidden fixed inset-0 z-50 bg-slate-900 flex flex-col">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800 shrink-0">
+            <button
+              onClick={() => setShowChat(false)}
+              className="text-slate-300 hover:text-white text-xl leading-none px-1 -ml-1"
+              aria-label="Назад"
+            >
+              ←
+            </button>
+            <span className="text-slate-100 text-sm font-medium">Admin</span>
+          </div>
+
+          <div
+            ref={mobileMessagesContainerRef}
+            onScroll={handleMessagesScroll}
+            className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-2"
+          >
+            {renderMessages()}
+          </div>
+
+          <div className="px-4 pb-4 shrink-0">
+            {renderComposer()}
+          </div>
+        </div>
+      )}
+
+      {/* Десктоп: встроенный блок фиксированной высоты, без оверлея.
+          Видим только на md и шире. */}
+      {showChat && (
+        <div ref={desktopChatBlockRef} className="hidden md:flex mt-3 bg-slate-950 border border-slate-800 rounded-xl p-3 h-[700px] flex-col">
           <div className="flex items-center justify-between mb-2 shrink-0">
             <span className="text-slate-500 text-[10px]">Переписка с администратором</span>
             <button onClick={() => setShowChat(false)} className="text-slate-500 hover:text-slate-300 text-xs">
@@ -510,224 +851,14 @@ export const HelpBot: React.FC = () => {
           </div>
 
           <div
-            ref={messagesContainerRef}
+            ref={desktopMessagesContainerRef}
             onScroll={handleMessagesScroll}
             className="flex flex-col gap-2 flex-1 overflow-y-auto mb-2"
           >
-            {messages.length === 0 && (
-              <p className="text-slate-600 text-xs text-center py-2">Напишите свой вопрос ниже</p>
-            )}
-            {messages.map((m) => (
-              <div
-                key={m.id}
-                onClick={() => setRevealedId(revealedId === m.id ? null : m.id)}
-                className={`max-w-[80%] rounded-lg px-3 py-2 text-xs relative cursor-pointer ${
-                  m.sender === 'participant'
-                    ? 'bg-indigo-600 text-white self-end'
-                    : 'bg-slate-800 text-slate-200 self-start'
-                }`}
-              >
-                {m.attachment_type === 'image' && (
-                  <div
-                    className="w-full h-48 rounded-lg mb-1 overflow-hidden cursor-pointer"
-                    onClick={(e) => { e.stopPropagation(); window.open(m.attachment_data!, '_blank'); }}
-                  >
-                    <img
-                      src={m.attachment_data!}
-                      alt="вложение"
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
-                )}
-                {m.attachment_type === 'video' && (
-                  <div className="rounded-lg mb-1 overflow-hidden" style={{ width: '100%', height: '192px' }}>
-                    <video
-                      src={m.attachment_data!}
-                      controls
-                      style={{ width: '100%', height: '192px', objectFit: 'cover', display: 'block' }}
-                    />
-                  </div>
-                )}
-                {m.attachment_type === 'audio' && (
-                  <audio src={m.attachment_data!} controls className="max-w-full mb-1" />
-                )}
-
-                {editingId === m.id ? (
-                  <div className="flex gap-1.5 mt-1" onClick={(e) => e.stopPropagation()}>
-                    <input
-                      type="text"
-                      value={editText}
-                      onChange={(e) => setEditText(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && handleSaveEdit(m.id)}
-                      className="flex-1 bg-slate-900 text-slate-100 text-[11px] rounded px-2 py-1 outline-none"
-                      autoFocus
-                    />
-                    <button onClick={() => handleSaveEdit(m.id)} className="text-emerald-400 text-xs">✓</button>
-                    <button onClick={() => setEditingId(null)} className="text-slate-400 text-xs">✕</button>
-                  </div>
-                ) : (
-                  m.message && <span>{renderMessageText(m.message)}</span>
-                )}
-
-                {revealedId === m.id && editingId !== m.id && (
-                  <div
-                    className="flex gap-2 absolute -top-2 right-1 bg-slate-950 rounded px-1.5 py-0.5"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    {m.sender === 'participant' && m.message && !m.attachment_type && (
-                      <button onClick={() => handleStartEdit(m)} className="text-slate-400 hover:text-slate-200 text-xs">
-                        ✎
-                      </button>
-                    )}
-                    <button onClick={() => handleDeleteMessage(m)} className="text-red-400 hover:text-red-300 text-xs">
-                      🗑
-                    </button>
-                  </div>
-                )}
-              </div>
-            ))}
+            {renderMessages()}
           </div>
 
-          {showEmoji && !recordLocked && (
-            <div className="flex flex-wrap gap-1.5 mb-2 bg-slate-800 rounded-lg p-2 shrink-0">
-              {EMOJI_LIST.map((emoji) => (
-                <button
-                  key={emoji}
-                  onClick={() => setInput((prev) => prev + emoji)}
-                  className="text-lg hover:scale-125 transition-transform"
-                >
-                  {emoji}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {recordLocked ? (
-            <div className="flex items-center gap-2 shrink-0">
-              <button
-                onClick={handleCancelRecording}
-                className="bg-slate-800 hover:bg-red-600 text-red-400 hover:text-white rounded-lg px-3 py-2.5 transition-colors shrink-0"
-                title="Удалить запись"
-              >
-                🗑
-              </button>
-              <button
-                onClick={handlePauseResume}
-                className="flex-1 bg-slate-800 hover:bg-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-200 flex items-center justify-center gap-2 transition-colors"
-              >
-                {isPaused ? '▶️ Возобновить' : '⏸️ Пауза'} · {formatDuration(recordingSeconds)}
-              </button>
-              <button
-                onClick={stopRecording}
-                className="bg-emerald-600 hover:bg-emerald-500 text-white rounded-full w-10 h-10 flex items-center justify-center transition-colors shrink-0"
-                title="Отправить"
-              >
-                ➤
-              </button>
-            </div>
-          ) : (
-            <div className="shrink-0">
-              {isRecording && (
-                <p className="text-slate-500 text-[11px] text-center pb-1.5">
-                  ↑ Вверх — блокировка · ← Влево — отмена · отпустите — отправить
-                </p>
-              )}
-              <div className="flex items-center gap-2">
-                <div className="flex-1 flex items-center gap-1.5 bg-slate-800 border border-slate-700 rounded-full pl-3 pr-1.5 py-1 focus-within:border-indigo-500 min-w-0">
-                  <button
-                    onClick={() => setShowEmoji((v) => !v)}
-                    disabled={isRecording}
-                    className="shrink-0 text-lg leading-none disabled:opacity-50"
-                  >
-                    😊
-                  </button>
-
-                  <input
-                    type="text"
-                    value={input}
-                    onChange={(e) => {
-                      setInput(e.target.value);
-                      if (user) saveDraft(user.id, e.target.value);
-                    }}
-                    onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-                    onFocus={() => setShowEmoji(false)}
-                    placeholder="Ваш вопрос..."
-                    disabled={isRecording}
-                    className="flex-1 bg-transparent text-slate-100 text-sm outline-none min-w-0 py-2 disabled:opacity-50"
-                  />
-
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*,video/*"
-                    onChange={handleFileSelect}
-                    className="hidden"
-                  />
-                  <button
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={uploading || isRecording}
-                    className="shrink-0 text-base leading-none disabled:opacity-50"
-                  >
-                    📎
-                  </button>
-
-                  <input
-                    ref={cameraInputRef}
-                    type="file"
-                    accept="image/*"
-                    capture="environment"
-                    onChange={handleFileSelect}
-                    className="hidden"
-                  />
-                  <button
-                    onClick={() => cameraInputRef.current?.click()}
-                    disabled={uploading || isRecording}
-                    className="shrink-0 text-base leading-none disabled:opacity-50 pr-1"
-                  >
-                    📸
-                  </button>
-                </div>
-
-                {input.trim() && !isRecording ? (
-                  <button
-                    onClick={handleSend}
-                    className="bg-indigo-600 hover:bg-indigo-500 text-white rounded-full w-11 h-11 flex items-center justify-center shrink-0 transition-colors text-lg"
-                  >
-                    ➤
-                  </button>
-                ) : (
-                  <button
-                    onPointerDown={handleMicPointerDown}
-                    onPointerUp={handleMicPointerUp}
-                    onPointerCancel={handleMicPointerUp}
-                    onPointerMove={handleMicPointerMove}
-                    onTouchStart={(e) => e.preventDefault()}
-                    className={`rounded-full w-11 h-11 flex items-center justify-center shrink-0 select-none transition-colors ${
-                      isRecording
-                        ? 'bg-red-600 text-white text-xs font-mono'
-                        : 'bg-slate-800 hover:bg-slate-700 text-slate-200 text-lg'
-                    }`}
-                  >
-                    {isRecording ? formatDuration(recordingSeconds) : '🎤'}
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-          {recordError && <p className="text-red-400 text-xs mt-1 shrink-0">{recordError}</p>}
-
-          {uploadPreview && (
-            <div className="relative mt-2 shrink-0 inline-block">
-              {uploadPreview.type === 'image' ? (
-                <img src={uploadPreview.url} alt="превью" className="rounded-lg max-h-40 opacity-20" />
-              ) : (
-                <video src={uploadPreview.url} className="rounded-lg max-h-40 opacity-20" />
-              )}
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full animate-spin" />
-              </div>
-            </div>
-          )}
+          {renderComposer()}
         </div>
       )}
     </div>
