@@ -541,7 +541,7 @@ useEffect(() => {
                 alt="вложение"
                 onClick={(e) => { e.stopPropagation(); window.open(m.attachment_data!, '_blank'); }}
                 className="rounded-lg mb-1 cursor-pointer"
-                style={{ maxWidth: '240px', maxHeight: '320px', minWidth: '160px', width: 'auto', height: 'auto', display: 'block' }}
+                style={{ maxWidth: '240px', maxHeight: '320px', minWidth: '240px', width: 'auto', height: 'auto', display: 'block' }}
               />
             )}
             {m.attachment_type === 'video' && (
