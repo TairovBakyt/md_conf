@@ -984,25 +984,25 @@ export const AdminChatView: React.FC = () => {
 
   // Удаляет всю переписку — только у себя, собеседник продолжит видеть
   // историю как обычно (симметрия с per-message hide выше).
-  const handleDeleteThread = async () => {
-    if (!user || !selectedOther) return;
-    if (
-      !confirm(
-        `Удалить переписку с ${selectedOther.username}? Она пропадёт только у вас.`,
-      )
-    )
-      return;
-    try {
-      await fetch(
-        `${API_URL}/api/admin-chat/thread/${user.id}/${selectedOther.id}`,
-        { method: "DELETE" },
-      );
-      closeThread();
-      fetchInbox();
-    } catch (err) {
-      console.error(err);
-    }
-  };
+  // const handleDeleteThread = async () => {
+  //   if (!user || !selectedOther) return;
+  //   if (
+  //     !confirm(
+  //       `Удалить переписку с ${selectedOther.username}? Она пропадёт только у вас.`,
+  //     )
+  //   )
+  //     return;
+  //   try {
+  //     await fetch(
+  //       `${API_URL}/api/admin-chat/thread/${user.id}/${selectedOther.id}`,
+  //       { method: "DELETE" },
+  //     );
+  //     closeThread();
+  //     fetchInbox();
+  //   } catch (err) {
+  //     console.error(err);
+  //   }
+  // };
 
   // const handleDeleteThreadFromList = async (otherId: string, username: string, e: React.MouseEvent) => {
   //   e.stopPropagation();

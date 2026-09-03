@@ -649,32 +649,32 @@ export const ChatInbox: React.FC = () => {
   };
 
   // ИЗМЕНЕНО ПО ПЛАНУ КЛОДА: Разделение удаления и скрытия сообщений
-  const handleDeleteMessage = async (m: ChatMessage) => {
-    if (m.sender === 'participant') {
-      // Чужое сообщение участника скрываем ТОЛЬКО у админа
-      if (!confirm('Скрыть это сообщение у себя? Участник продолжит видеть его.')) return;
+  // const handleDeleteMessage = async (m: ChatMessage) => {
+  //   if (m.sender === 'participant') {
+  //     // Чужое сообщение участника скрываем ТОЛЬКО у админа
+  //     if (!confirm('Скрыть это сообщение у себя? Участник продолжит видеть его.')) return;
 
-      locallyHiddenRef.current.add(m.id);
-      setMessages((prev) => prev.filter((msg) => msg.id !== m.id));
+  //     locallyHiddenRef.current.add(m.id);
+  //     setMessages((prev) => prev.filter((msg) => msg.id !== m.id));
 
-      try {
-        // Стучимся на роут скрытия у админа
-        await fetch(`${API_URL}/api/chat/hide-admin/${m.id}`, { method: 'POST' });
-        if (selected) fetchThread(selected.userId);
-      } catch (err) {
-        console.error(err);
-      }
-    } else {
-      // Своё сообщение админа удаляем полностью для всех из БД
-      if (!confirm('Удалить это сообщение для всех?')) return;
-      try {
-        await fetch(`${API_URL}/api/chat/message/${m.id}`, { method: 'DELETE' });
-        if (selected) fetchThread(selected.userId);
-      } catch (err) {
-        console.error(err);
-      }
-    }
-  };
+  //     try {
+  //       // Стучимся на роут скрытия у админа
+  //       await fetch(`${API_URL}/api/chat/hide-admin/${m.id}`, { method: 'POST' });
+  //       if (selected) fetchThread(selected.userId);
+  //     } catch (err) {
+  //       console.error(err);
+  //     }
+  //   } else {
+  //     // Своё сообщение админа удаляем полностью для всех из БД
+  //     if (!confirm('Удалить это сообщение для всех?')) return;
+  //     try {
+  //       await fetch(`${API_URL}/api/chat/message/${m.id}`, { method: 'DELETE' });
+  //       if (selected) fetchThread(selected.userId);
+  //     } catch (err) {
+  //       console.error(err);
+  //     }
+  //   }
+  // };
 
   // const handleStartEdit = (m: ChatMessage) => {
   //   setEditingId(m.id);
@@ -697,17 +697,17 @@ export const ChatInbox: React.FC = () => {
     }
   };
 
-  const handleDeleteThread = async () => {
-    if (!selected) return;
-    if (!confirm(`Удалить всю переписку с ${selected.username}? Это необратимо.`)) return;
-    try {
-      await fetch(`${API_URL}/api/chat/thread/${selected.userId}`, { method: 'DELETE' });
-      setSelected(null);
-      fetchInbox();
-    } catch (err) {
-      console.error(err);
-    }
-  };
+  // const handleDeleteThread = async () => {
+  //   if (!selected) return;
+  //   if (!confirm(`Удалить всю переписку с ${selected.username}? Это необратимо.`)) return;
+  //   try {
+  //     await fetch(`${API_URL}/api/chat/thread/${selected.userId}`, { method: 'DELETE' });
+  //     setSelected(null);
+  //     fetchInbox();
+  //   } catch (err) {
+  //     console.error(err);
+  //   }
+  // };
 
   // const handleDeleteThreadFromList = async (userId: string, username: string, e: React.MouseEvent) => {
   //   e.stopPropagation();
