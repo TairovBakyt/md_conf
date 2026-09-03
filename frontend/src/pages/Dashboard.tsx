@@ -130,8 +130,8 @@ export const Dashboard: React.FC = () => {
   // редиректа, вход в игру только по клику.
   useSmartPolling(() => fetchProfile(false), 5000, !!user);
 
-  const handleStartQuiz = () => navigate('/quiz');
-  const handleStartFilword = () => navigate('/filword');
+    const handleStartQuiz = () => navigate('/quiz-rules');
+    const handleStartFilword = () => navigate('/filword-rules');
 
   const handleLogout = () => {
     logout();

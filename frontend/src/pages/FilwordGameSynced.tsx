@@ -40,6 +40,36 @@ interface Cell {
   col: number;
 }
 
+const DIRECTIONS: [number, number][] = [
+  [0, 1], [0, -1], [1, 0], [-1, 0],
+  [1, 1], [1, -1], [-1, 1], [-1, -1],
+];
+
+function findWordCells(grid: string[], word: string): Cell[] | null {
+  const rows = grid.length;
+  const cols = grid[0]?.length ?? 0;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      if (grid[r][c] !== word[0]) continue;
+      for (const [dr, dc] of DIRECTIONS) {
+        const cells: Cell[] = [];
+        let match = true;
+        for (let i = 0; i < word.length; i++) {
+          const rr = r + dr * i;
+          const cc = c + dc * i;
+          if (rr < 0 || rr >= rows || cc < 0 || cc >= cols || grid[rr][cc] !== word[i]) {
+            match = false;
+            break;
+          }
+          cells.push({ row: rr, col: cc });
+        }
+        if (match) return cells;
+      }
+    }
+  }
+  return null;
+}
+
 const CELL_GAP_PX = 2; // должен совпадать с gap у игровой сетки ниже
 
 const LeaderboardTicker: React.FC<{ entries: LeaderboardEntry[] }> = ({ entries }) => {
@@ -75,7 +105,8 @@ export const FilwordGameSynced: React.FC = () => {
   const [lobbyCount, setLobbyCount] = useState(0);
   const [wordInput, setWordInput] = useState('');
   const [pendingCells, setPendingCells] = useState<Cell[] | null>(null);
-  const [resultFlash, setResultFlash] = useState<{ cells: Cell[]; isValid: boolean } | null>(null);
+    const [resultFlash, setResultFlash] = useState<{ cells: Cell[]; isValid: boolean } | null>(null);
+  const [foundCells, setFoundCells] = useState<Cell[]>([]);
   const [feedback, setFeedback] = useState<{ type: 'ok' | 'bad'; text: string } | null>(null);
 
   const [selectionStart, setSelectionStart] = useState<Cell | null>(null);
@@ -198,8 +229,21 @@ export const FilwordGameSynced: React.FC = () => {
         setTimeout(() => setResultFlash(null), 600);
       }
 
-      if (data.isValid) {
+            if (data.isValid) {
         setState((prev) => (prev.phase === 'playing' ? { ...prev, foundWords: data.foundWords } : prev));
+
+        let cellsToMark = cellsOverride;
+        if (!cellsToMark && state.phase === 'playing') {
+          cellsToMark = findWordCells(state.grid, trimmed) ?? undefined;
+          if (cellsToMark) {
+            setResultFlash({ cells: cellsToMark, isValid: true });
+            setTimeout(() => setResultFlash(null), 600);
+          }
+        }
+        if (cellsToMark) {
+          setFoundCells((prev) => [...prev, ...cellsToMark]);
+        }
+
         setFeedback({ type: 'ok', text: 'Верно! +2 балла' });
         setWordInput('');
       } else {
@@ -245,6 +289,10 @@ export const FilwordGameSynced: React.FC = () => {
   const isCellInFlash = (row: number, col: number): boolean => {
     if (!resultFlash) return false;
     return resultFlash.cells.some((c) => c.row === row && c.col === col);
+  };
+
+    const isCellFound = (row: number, col: number): boolean => {
+    return foundCells.some((c) => c.row === row && c.col === col);
   };
 
   const getWordCells = (start: [number, number], end: [number, number]): Cell[] => {
@@ -494,11 +542,14 @@ export const FilwordGameSynced: React.FC = () => {
                 const pending = isCellPending(rowIndex, colIndex);
                 const inFlash = isCellInFlash(rowIndex, colIndex);
 
+                                const found = isCellFound(rowIndex, colIndex);
                 let cellClasses = 'bg-slate-800 text-slate-300';
                 if (inFlash) {
                   cellClasses = resultFlash?.isValid ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white';
                 } else if (pending || selected) {
                   cellClasses = 'bg-indigo-600 text-white';
+                } else if (found) {
+                  cellClasses = 'bg-emerald-600/70 text-white';
                 }
 
                 return (

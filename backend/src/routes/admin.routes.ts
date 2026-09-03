@@ -770,6 +770,50 @@ router.post('/deduct-points', async (req: Request, res: Response) => {
   }
 });
 
+// Массовое начисление или списание баллов всем участникам сразу.
+// amount > 0 — начислить, amount < 0 — списать. Баланс не уходит в
+// минус: при списании обрезается по нулю. Списания логируются в
+// point_deductions, чтобы попасть в общую ленту points-history.
+router.post('/bulk-points', async (req: Request, res: Response) => {
+  const { adminId, amount } = req.body;
+
+  const value = Number(amount);
+  if (!Number.isInteger(value) || value === 0) {
+    return res.status(400).json({ error: 'Введите количество баллов' });
+  }
+
+  try {
+    const adminCheck = await pool.query('SELECT is_admin FROM users WHERE id = $1', [adminId]);
+    if (!adminCheck.rows[0]?.is_admin) {
+      return res.status(403).json({ error: 'Доступ запрещён' });
+    }
+
+    const result = await pool.query(
+      `UPDATE users
+       SET total_score = GREATEST(total_score + $1, 0)
+       WHERE is_admin = false
+       RETURNING id`,
+      [value]
+    );
+
+    // Списание логируем каждому — иначе баллы пропадут из истории
+    // бесследно и разобраться потом будет нечем.
+    if (value < 0 && result.rows.length > 0) {
+      const ids = result.rows.map((r) => r.id);
+      await pool.query(
+        `INSERT INTO point_deductions (user_id, admin_id, points)
+         SELECT unnest($1::text[]), $2, $3`,
+        [ids, adminId, Math.abs(value)]
+      );
+    }
+
+    return res.json({ success: true, affected: result.rowCount });
+  } catch (error) {
+    console.error('Ошибка массового изменения баллов:', error);
+    return res.status(500).json({ error: 'Ошибка массового изменения баллов' });
+  }
+});
+
 
 // ==========================================
 // УДАЛЕНИЕ УЧАСТНИКА ИЗ СИСТЕМЫ (БЕЗВОЗВРАТНО)
@@ -821,6 +865,146 @@ router.delete('/delete-participant', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Ошибка на бэкенде при удалении участника:', error);
     return res.status(500).json({ error: 'Ошибка сервера при удалении участника' });
+  }
+});
+
+// Сброс индивидуальной игры одному участнику — если у него были проблемы
+// (завис интернет, случайно закрыл вкладку и т.п.) и он должен пройти игру
+// заново. Снимает ранее начисленные баллы, чтобы не задваивались при
+// повторном прохождении.
+router.post('/reset-game', async (req: Request, res: Response) => {
+  const { adminId, targetUserId, game } = req.body;
+
+  if (game !== 'quiz' && game !== 'filword') {
+    return res.status(400).json({ error: 'Неизвестная игра' });
+  }
+
+  try {
+    const adminCheck = await pool.query('SELECT is_admin FROM users WHERE id = $1', [adminId]);
+    if (!adminCheck.rows[0]?.is_admin) {
+      return res.status(403).json({ error: 'Доступ запрещён' });
+    }
+
+    const targetCheck = await pool.query('SELECT username FROM users WHERE id = $1', [targetUserId]);
+    if (targetCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Участник не найден' });
+    }
+
+    if (game === 'quiz') {
+      const finalResult = await pool.query(
+        'SELECT score, bonus FROM quiz_final_results WHERE user_id = $1',
+        [targetUserId]
+      );
+
+      if (finalResult.rows.length === 0) {
+        return res.status(400).json({ error: 'Участник ещё не проходил викторину' });
+      }
+
+      const { score, bonus } = finalResult.rows[0];
+      const total = Number(score) + Number(bonus);
+
+      await pool.query('DELETE FROM quiz_answers WHERE user_id = $1', [targetUserId]);
+      await pool.query('DELETE FROM quiz_final_results WHERE user_id = $1', [targetUserId]);
+      if (Number(bonus) > 0) {
+        await pool.query(
+          "DELETE FROM achievements WHERE user_id = $1 AND title = 'Senior Developer'",
+          [targetUserId]
+        );
+      }
+      await pool.query(
+        'UPDATE users SET total_score = GREATEST(total_score - $1, 0), is_quiz_passed = false WHERE id = $2',
+        [total, targetUserId]
+      );
+
+      return res.json({ success: true, message: `Викторина сброшена участнику «${targetCheck.rows[0].username}», снято ${total} баллов` });
+    }
+
+    // game === 'filword'
+    const sessionResult = await pool.query(
+      'SELECT score, is_finished FROM filword_sessions WHERE user_id = $1',
+      [targetUserId]
+    );
+
+    if (sessionResult.rows.length === 0 || !sessionResult.rows[0].is_finished) {
+      return res.status(400).json({ error: 'Участник ещё не проходил филворд' });
+    }
+
+    const { score } = sessionResult.rows[0];
+
+    await pool.query('DELETE FROM filword_sessions WHERE user_id = $1', [targetUserId]);
+    await pool.query(
+      'UPDATE users SET total_score = GREATEST(total_score - $1, 0), is_filword_passed = false WHERE id = $2',
+      [score, targetUserId]
+    );
+
+    return res.json({ success: true, message: `Филворд сброшен участнику «${targetCheck.rows[0].username}», снято ${score} баллов` });
+  } catch (error) {
+    console.error('Ошибка сброса игры:', error);
+    return res.status(500).json({ error: 'Ошибка сервера при сбросе игры' });
+  }
+});
+
+
+// Массовый сброс индивидуальной игры всем участникам сразу — на случай
+// сбоя раунда (тестовый прогон, неправильные вопросы и т.п.). Снимает
+// ранее начисленные баллы у каждого, кто уже прошёл игру, чтобы не было
+// задвоения при повторном запуске.
+router.post('/reset-game-all', async (req: Request, res: Response) => {
+  const { adminId, game } = req.body;
+
+  if (game !== 'quiz' && game !== 'filword') {
+    return res.status(400).json({ error: 'Неизвестная игра' });
+  }
+
+  try {
+    const adminCheck = await pool.query('SELECT is_admin FROM users WHERE id = $1', [adminId]);
+    if (!adminCheck.rows[0]?.is_admin) {
+      return res.status(403).json({ error: 'Доступ запрещён' });
+    }
+
+    if (game === 'quiz') {
+      const finalResults = await pool.query('SELECT user_id, score, bonus FROM quiz_final_results');
+
+      for (const row of finalResults.rows) {
+        const total = Number(row.score) + Number(row.bonus);
+        await pool.query(
+          'UPDATE users SET total_score = GREATEST(total_score - $1, 0), is_quiz_passed = false WHERE id = $2',
+          [total, row.user_id]
+        );
+        if (Number(row.bonus) > 0) {
+          await pool.query(
+            "DELETE FROM achievements WHERE user_id = $1 AND title = 'Senior Developer'",
+            [row.user_id]
+          );
+        }
+      }
+
+      await pool.query('DELETE FROM quiz_answers');
+      await pool.query('DELETE FROM quiz_final_results');
+      await pool.query('DELETE FROM quiz_lobby');
+
+      return res.json({ success: true, message: `Викторина сброшена у ${finalResults.rows.length} участников` });
+    }
+
+    // game === 'filword'
+    const sessions = await pool.query(
+      'SELECT user_id, score FROM filword_sessions WHERE is_finished = true'
+    );
+
+    for (const row of sessions.rows) {
+      await pool.query(
+        'UPDATE users SET total_score = GREATEST(total_score - $1, 0), is_filword_passed = false WHERE id = $2',
+        [Number(row.score), row.user_id]
+      );
+    }
+
+    await pool.query('DELETE FROM filword_sessions');
+    await pool.query('DELETE FROM filword_lobby');
+
+    return res.json({ success: true, message: `Филворд сброшен у ${sessions.rows.length} участников` });
+  } catch (error) {
+    console.error('Ошибка массового сброса игры:', error);
+    return res.status(500).json({ error: 'Ошибка сервера при массовом сбросе' });
   }
 });
 
