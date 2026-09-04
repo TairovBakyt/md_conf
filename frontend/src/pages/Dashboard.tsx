@@ -200,7 +200,7 @@ export const Dashboard: React.FC = () => {
             
 
             <div className="w-full mt-3 grid grid-cols-2 gap-2">
-              <QrZone userId={profile.id} />
+                            <QrZone userId={profile.id} pinCode={profile.pin_code} />
               <Link
                 to="/scan-admin"
                 className="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium rounded-2xl py-3 transition-colors flex items-center justify-center"

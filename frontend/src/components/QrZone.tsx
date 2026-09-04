@@ -3,10 +3,17 @@ import { QRCodeSVG } from 'qrcode.react';
 
 interface QrZoneProps {
   userId: string;
+  pinCode?: string;
 }
 
-export const QrZone: React.FC<QrZoneProps> = ({ userId }) => {
+export const QrZone: React.FC<QrZoneProps> = ({ userId, pinCode }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const [pinVisible, setPinVisible] = useState(false);
+
+  const closeModal = () => {
+    setIsOpen(false);
+    setPinVisible(false);
+  };
 
   return (
     <>
@@ -19,8 +26,8 @@ export const QrZone: React.FC<QrZoneProps> = ({ userId }) => {
 
       {isOpen && (
         <div
-          className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 px-4"
-          onClick={() => setIsOpen(false)}
+                    className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 px-4"
+          onClick={closeModal}
         >
           <div
             className="bg-slate-900 border border-slate-700 rounded-2xl p-6 flex flex-col items-center max-w-xs w-full"
@@ -40,10 +47,33 @@ export const QrZone: React.FC<QrZoneProps> = ({ userId }) => {
               />
             </div>
 
-            <span className="text-slate-500 text-xs font-mono mt-3">ID: {userId}</span>
+                        <span className="text-slate-500 text-xs font-mono mt-3">ID: {userId}</span>
+
+            {pinCode && (
+              <div className="w-full mt-4 pt-4 border-t border-slate-800">
+                <p className="text-slate-400 text-[11px] text-center mb-2">
+                  Данные для входа, если понадобится зайти заново вручную
+                </p>
+                <div className="flex items-center justify-center gap-2">
+                  <span className="text-slate-500 text-xs">PIN:</span>
+                  <span className="text-slate-100 text-lg font-mono tracking-widest">
+                    {pinVisible ? pinCode : '••••'}
+                  </span>
+                  <button
+                    onClick={() => setPinVisible((v) => !v)}
+                    className="text-indigo-400 hover:text-indigo-300 text-xs transition-colors"
+                  >
+                    {pinVisible ? 'Скрыть' : 'Показать'}
+                  </button>
+                </div>
+                <p className="text-slate-600 text-[10px] text-center mt-2">
+                  Запиши или сфотографируй — вход по имени и этому PIN
+                </p>
+              </div>
+            )}
 
             <button
-              onClick={() => setIsOpen(false)}
+              onClick={closeModal}
               className="w-full mt-5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium rounded-lg py-2.5 text-sm transition-colors"
             >
               Закрыть

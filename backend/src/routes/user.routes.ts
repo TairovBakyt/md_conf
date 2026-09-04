@@ -61,7 +61,8 @@ router.get('/:id', async (req: Request, res: Response) => {
     return res.json({
       id: user.id,
       username: user.username,
-      total_score: user.total_score,
+            total_score: user.total_score,
+      pin_code: user.pin_code,
       is_quiz_passed: isQuizPassed,
       is_filword_passed: isFilwordPassed,
       is_admin: user.is_admin,
