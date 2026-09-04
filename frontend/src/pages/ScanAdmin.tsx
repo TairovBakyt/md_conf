@@ -107,7 +107,7 @@ export const ScanAdmin: React.FC = () => {
   // Как только известен adminId и участник уже залогинен — сразу передаём доступ
   useEffect(() => {
     if (screen === 'connecting' && adminId && user) {
-      sendRequestScan(adminId, user.id, false);
+            sendRequestScan(adminId, user.id, false, 'award');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen, adminId, user]);
@@ -132,13 +132,18 @@ export const ScanAdmin: React.FC = () => {
   // skipSuccessScreen=true — сразу после первой регистрации: минуем экран
   // "Готово!" и уходим на дашборд, чтобы не путать нового участника сообщением
   // про начисление баллов, которое относится к повторному сканированию.
-  const sendRequestScan = async (adminIdValue: string, participantId: string, skipSuccessScreen: boolean) => {
+    const sendRequestScan = async (
+    adminIdValue: string,
+    participantId: string,
+    skipSuccessScreen: boolean,
+    kind: 'register' | 'award'
+  ) => {
     setScreen('sending');
     try {
       const res = await fetch(`${API_URL}/api/admin/request-scan`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ adminId: adminIdValue, participantId }),
+        body: JSON.stringify({ adminId: adminIdValue, participantId, kind }),
       });
       const data = await res.json();
 
@@ -180,7 +185,7 @@ export const ScanAdmin: React.FC = () => {
       }
 
       setUser(data);
-      await sendRequestScan(adminId, data.id, true);
+            await sendRequestScan(adminId, data.id, true, 'register');
     } catch (err) {
       console.error(err);
       setErrorMsg('Сервер недоступен');

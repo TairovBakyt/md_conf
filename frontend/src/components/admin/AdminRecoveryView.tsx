@@ -14,7 +14,11 @@ interface FullParticipant {
   username: string;
   pin_code: string;
   total_score: number;
+  reg_source: string | null;
+  created_at: string | null;
 }
+
+type RegFilter = 'all' | 'qr' | 'manual';
 
 type SubTab = 'search' | 'fullList';
 
@@ -29,6 +33,7 @@ interface PersistedRecoveryState {
   resetTarget: SearchResult | null;
   fullListFilter: string;
   revealedId: string | null;
+  regFilter: RegFilter;
 }
 
 function loadPersistedRecoveryState(): PersistedRecoveryState {
@@ -38,7 +43,7 @@ function loadPersistedRecoveryState(): PersistedRecoveryState {
   } catch {
     // не критично
   }
-  return { subTab: 'search', query: '', results: [], resetTarget: null, fullListFilter: '', revealedId: null };
+    return { subTab: 'search', query: '', results: [], resetTarget: null, fullListFilter: '', revealedId: null, regFilter: 'all' };
 }
 
 export const AdminRecoveryView: React.FC = () => {
@@ -58,7 +63,8 @@ export const AdminRecoveryView: React.FC = () => {
   const [fullList, setFullList] = useState<FullParticipant[]>([]);
   const [fullListLoading, setFullListLoading] = useState(false);
   const [fullListFilter, setFullListFilter] = useState(persistedRecovery.fullListFilter);
-  const [revealedId, setRevealedId] = useState<string | null>(persistedRecovery.revealedId);
+    const [revealedId, setRevealedId] = useState<string | null>(persistedRecovery.revealedId);
+  const [regFilter, setRegFilter] = useState<RegFilter>(persistedRecovery.regFilter ?? 'all');
 
   // Состояние для блокировки кнопки удаления во время запроса
   const [deleteBusy, setDeleteBusy] = useState(false);
@@ -67,12 +73,12 @@ export const AdminRecoveryView: React.FC = () => {
     try {
       sessionStorage.setItem(
         RECOVERY_STORAGE_KEY,
-        JSON.stringify({ subTab, query, results, resetTarget, fullListFilter, revealedId })
+                JSON.stringify({ subTab, query, results, resetTarget, fullListFilter, revealedId, regFilter })
       );
     } catch {
       // не критично
     }
-  }, [subTab, query, results, resetTarget, fullListFilter, revealedId]);
+  }, [subTab, query, results, resetTarget, fullListFilter, revealedId, regFilter]);
 
   const handleSearch = async () => {
     if (!query.trim()) {
@@ -204,11 +210,38 @@ export const AdminRecoveryView: React.FC = () => {
 
   useSmartPolling(pollRecoveryData, 3000);
 
-  const filteredFullList = fullList.filter(
-    (p) =>
+    const filteredFullList = fullList.filter((p) => {
+    const matchesText =
       p.username.toLowerCase().includes(fullListFilter.toLowerCase()) ||
-      p.id.includes(fullListFilter)
-  );
+      p.id.includes(fullListFilter);
+
+    if (!matchesText) return false;
+    if (regFilter === 'all') return true;
+    return p.reg_source === regFilter;
+  });
+
+  const qrCount = fullList.filter((p) => p.reg_source === 'qr').length;
+  const manualCount = fullList.filter((p) => p.reg_source === 'manual').length;
+
+  const formatRegDate = (iso: string | null): string => {
+    if (!iso) return 'неизвестно';
+    try {
+      return new Date(iso).toLocaleString('ru-RU', {
+        day: '2-digit',
+        month: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    } catch {
+      return 'неизвестно';
+    }
+  };
+
+  const regSourceLabel = (source: string | null): string => {
+    if (source === 'qr') return 'по QR организатора';
+    if (source === 'manual') return 'вручную (имя + PIN)';
+    return 'неизвестно';
+  };
 
   const revealedParticipant = filteredFullList.find((p) => p.id === revealedId) ?? null;
 
@@ -342,13 +375,37 @@ export const AdminRecoveryView: React.FC = () => {
             спросив что-то запоминающееся (когда регистрировался, сколько баллов набрал).
           </p>
 
-          <input
+                    <input
             type="text"
             value={fullListFilter}
             onChange={(e) => setFullListFilter(e.target.value)}
             placeholder="Фильтр по нику или ID..."
-            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-slate-100 text-sm outline-none focus:border-indigo-500 mb-3"
+            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-slate-100 text-sm outline-none focus:border-indigo-500 mb-2"
           />
+
+          <div className="flex gap-1.5 mb-2">
+            {([
+              { key: 'all', label: `Все · ${fullList.length}` },
+              { key: 'qr', label: `По QR · ${qrCount}` },
+              { key: 'manual', label: `Вручную · ${manualCount}` },
+            ] as { key: RegFilter; label: string }[]).map((btn) => (
+              <button
+                key={btn.key}
+                onClick={() => setRegFilter(btn.key)}
+                className={`flex-1 text-[11px] font-medium rounded-lg py-2 transition-colors ${
+                  regFilter === btn.key
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+                }`}
+              >
+                {btn.label}
+              </button>
+            ))}
+          </div>
+
+          <p className="text-slate-600 text-[11px] mb-3">
+            Показано: {filteredFullList.length}
+          </p>
 
           {fullListLoading ? (
             <p className="text-slate-500 text-sm text-center py-6">Загружаем...</p>
@@ -370,8 +427,14 @@ export const AdminRecoveryView: React.FC = () => {
             <div className="bg-slate-800 rounded-xl p-3 flex items-end justify-between gap-4 border border-indigo-500/40">
               <div className="min-w-0">
                 <p className="text-slate-100 text-sm font-medium truncate mb-1">{revealedParticipant.username}</p>
-                <p className="text-slate-400 text-xs font-mono">ID: {revealedParticipant.id}</p>
+                                <p className="text-slate-400 text-xs font-mono">ID: {revealedParticipant.id}</p>
                 <p className="text-amber-400 text-xs font-mono font-semibold">PIN: {revealedParticipant.pin_code}</p>
+                <p className="text-slate-500 text-[11px] mt-1">
+                  Регистрация: {regSourceLabel(revealedParticipant.reg_source)}
+                </p>
+                <p className="text-slate-500 text-[11px]">
+                  Когда: {formatRegDate(revealedParticipant.created_at)}
+                </p>
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <button

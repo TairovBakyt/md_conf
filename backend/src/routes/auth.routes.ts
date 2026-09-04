@@ -48,9 +48,9 @@ router.post('/login', async (req: Request, res: Response) => {
         }
       }
 
-      const newUser = await pool.query(
-        'INSERT INTO users (id, username, total_score, pin_code) VALUES ($1, $2, $3, $4) RETURNING *',
-        [newId, trimmedUsername, 0, pin]
+            const newUser = await pool.query(
+        'INSERT INTO users (id, username, total_score, pin_code, reg_source, created_at) VALUES ($1, $2, $3, $4, $5, NOW()) RETURNING *',
+        [newId, trimmedUsername, 0, pin, 'manual']
       );
 
       return res.status(201).json(newUser.rows[0]);
@@ -97,9 +97,9 @@ router.post('/quick-register', async (req: Request, res: Response) => {
       return res.status(500).json({ error: 'Не удалось подобрать свободный PIN — обратитесь к организатору' });
     }
 
-    const newUser = await pool.query(
-      'INSERT INTO users (id, username, total_score, pin_code) VALUES ($1, $2, $3, $4) RETURNING *',
-      [newId, trimmedUsername, 0, randomPin]
+        const newUser = await pool.query(
+      'INSERT INTO users (id, username, total_score, pin_code, reg_source, created_at) VALUES ($1, $2, $3, $4, $5, NOW()) RETURNING *',
+      [newId, trimmedUsername, 0, randomPin, 'qr']
     );
 
     return res.status(201).json(newUser.rows[0]);
