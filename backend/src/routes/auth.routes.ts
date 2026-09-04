@@ -82,7 +82,20 @@ router.post('/quick-register', async (req: Request, res: Response) => {
       if (idCheck.rows.length === 0) isUniqueId = true;
     }
 
-    const randomPin = Math.floor(1000 + Math.random() * 9000).toString();
+        let randomPin = '';
+    let isUniquePin = false;
+    let pinAttempts = 0;
+
+    while (!isUniquePin && pinAttempts < 200) {
+      randomPin = Math.floor(1000 + Math.random() * 9000).toString();
+      const pinCheck = await pool.query('SELECT id FROM users WHERE pin_code = $1', [randomPin]);
+      if (pinCheck.rows.length === 0) isUniquePin = true;
+      pinAttempts++;
+    }
+
+    if (!isUniquePin) {
+      return res.status(500).json({ error: 'Не удалось подобрать свободный PIN — обратитесь к организатору' });
+    }
 
     const newUser = await pool.query(
       'INSERT INTO users (id, username, total_score, pin_code) VALUES ($1, $2, $3, $4) RETURNING *',
