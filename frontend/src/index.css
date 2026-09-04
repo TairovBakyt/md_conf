@@ -1,1 +1,11 @@
 @import "tailwindcss";
+
+/* Полностью скрыть полосу прокрутки, оставив саму прокрутку рабочей —
+   применяется точечно через класс .no-scrollbar, а не глобально. */
+.no-scrollbar {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* старый Edge/IE */
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none; /* Chrome, Safari, новый Edge */
+}

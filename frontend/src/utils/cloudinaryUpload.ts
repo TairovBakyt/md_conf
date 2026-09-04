@@ -37,3 +37,13 @@ export async function uploadToCloudinary(
   const data = await res.json();
   return data.secure_url as string;
 }
+
+/**
+ * Вставляет трансформацию Cloudinary в готовый secure_url — CDN отдаёт
+ * уменьшенную/сжатую версию того же файла на лету, без повторной загрузки.
+ * URL Cloudinary всегда содержит сегмент "/upload/", сразу после него и
+ * вставляются параметры.
+ */
+export function getOptimizedUrl(url: string, transformation: string): string {
+  return url.replace('/upload/', `/upload/${transformation}/`);
+}

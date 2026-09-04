@@ -167,7 +167,12 @@ router.post('/mark-read-participant', async (req: Request, res: Response) => {
 router.delete('/message/:id', async (req: Request, res: Response) => {
   const { id } = req.params;
   try {
-    await pool.query('DELETE FROM chat_messages WHERE id = $1', [id]);
+    await pool.query(
+      `UPDATE chat_messages
+       SET is_deleted = true, message = NULL, attachment_type = NULL, attachment_data = NULL
+       WHERE id = $1`,
+      [id]
+    );
     return res.json({ success: true });
   } catch (error) {
     console.error(error);

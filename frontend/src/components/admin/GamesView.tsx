@@ -41,6 +41,10 @@ export const GamesView: React.FC = () => {
   const [quizModeChoice, setQuizModeChoice] = useState<'individual' | 'synced'>('individual');
   const [filwordModeChoice, setFilwordModeChoice] = useState<'individual' | 'synced'>('individual');
   const [filwordLobbyCount, setFilwordLobbyCount] = useState(0);
+    const [resetSearchId, setResetSearchId] = useState('');
+  const [resetTarget, setResetTarget] = useState<{ id: string; username: string } | null>(null);
+  const [resetError, setResetError] = useState('');
+
 
   const fetchQuizLobbyCount = async () => {
     try {
@@ -235,6 +239,79 @@ export const GamesView: React.FC = () => {
     }
   };
 
+    const searchResetTarget = async () => {
+    if (!resetSearchId.trim()) return;
+    setResetError('');
+    setResetTarget(null);
+    try {
+      const res = await fetch(`${API_URL}/api/user/${resetSearchId.trim()}`);
+      const data = await res.json();
+      if (!res.ok) {
+        setResetError(data.error || 'Участник не найден');
+        return;
+      }
+      setResetTarget({ id: data.id, username: data.username });
+    } catch (err) {
+      console.error(err);
+      setResetError('Сервер недоступен');
+    }
+  };
+
+
+
+  const resetGame = async (game: 'quiz' | 'filword') => {
+    if (!user || !resetTarget) return;
+    const label = game === 'quiz' ? 'викторину' : 'филворд';
+    if (!confirm(`Сбросить ${label} участнику «${resetTarget.username}»? Он сможет пройти игру заново, баллы за неё будут сняты.`)) return;
+
+    setBusy(true);
+    try {
+      const res = await fetch(`${API_URL}/api/admin/reset-game`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adminId: user.id, targetUserId: resetTarget.id, game }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'Не удалось сбросить игру');
+        return;
+      }
+      alert(data.message);
+    } catch (err) {
+      console.error(err);
+      alert('Сервер недоступен');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const resetGameAll = async (game: 'quiz' | 'filword') => {
+    if (!user) return;
+    const label = game === 'quiz' ? 'викторину' : 'филворд';
+    if (!confirm(`Сбросить ${label} ВСЕМ участникам? Это снимет ранее начисленные баллы у каждого, кто уже прошёл игру. Действие необратимо.`)) return;
+
+    setBusy(true);
+    try {
+      const res = await fetch(`${API_URL}/api/admin/reset-game-all`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adminId: user.id, game }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'Не удалось сбросить игру');
+        return;
+      }
+      alert(data.message);
+      fetchGameSettings();
+    } catch (err) {
+      console.error(err);
+      alert('Сервер недоступен');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="w-full max-w-xl mx-auto bg-slate-950 rounded-2xl p-5">
       <div className="flex items-center justify-between mb-4">
@@ -244,6 +321,7 @@ export const GamesView: React.FC = () => {
       {loading ? (
         <p className="text-slate-400 text-sm text-center py-6">Загружаем...</p>
       ) : (
+        
         <div className="flex flex-col gap-3">
           <div className="bg-slate-800 rounded-xl p-4">
             <p className="text-slate-100 text-sm font-medium mb-1">2. Викторина «Hardcore QA»</p>
@@ -274,7 +352,7 @@ export const GamesView: React.FC = () => {
               </div>
             )}
 
-            {gameSettings.quiz_unlocked ? (
+                           {gameSettings.quiz_unlocked ? (
               <button
                 onClick={() => toggleGame('quiz', false)}
                 disabled={busy}
@@ -356,7 +434,7 @@ export const GamesView: React.FC = () => {
               </div>
             )}
 
-            {gameSettings.filword_unlocked ? (
+                                   {gameSettings.filword_unlocked ? (
               <button
                 onClick={() => toggleGame('filword', false)}
                 disabled={busy}
@@ -431,6 +509,82 @@ export const GamesView: React.FC = () => {
               </div>
             );
           })}
+                    <div className="border-t border-slate-800 pt-3 mt-1">
+            <p className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-2">
+                            Сбросить результаты игры участника
+            </p>
+            {(gameSettings.quiz_mode === 'synced' || gameSettings.filword_mode === 'synced') && (
+              <p className="text-slate-500 text-xs mb-2">
+                Для совместного раунда работает только пока он ещё идёт — если раунд уже завершился, результат станет 0.
+              </p>
+            )}
+          </div>
+
+          <div className="bg-slate-800 rounded-xl p-4">
+            <div className="flex gap-2 mb-2">
+              <input
+                type="text"
+                value={resetSearchId}
+                onChange={(e) => setResetSearchId(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && searchResetTarget()}
+                placeholder="ID участника"
+                className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 text-sm outline-none focus:border-indigo-500"
+              />
+              <button
+                onClick={searchResetTarget}
+                className="bg-slate-700 hover:bg-slate-600 text-slate-200 font-medium rounded-lg px-4 py-2 text-sm transition-colors"
+              >
+                Найти
+              </button>
+            </div>
+
+            {resetError && <p className="text-red-400 text-xs mb-2">{resetError}</p>}
+
+            {resetTarget && (
+              <div className="mt-2">
+                <p className="text-slate-300 text-sm mb-2">{resetTarget.username}</p>
+                                <div className="flex gap-2">
+                  <button
+                    onClick={() => resetGame('quiz')}
+                    disabled={busy}
+                    className="flex-1 bg-amber-600 hover:bg-amber-500 text-white font-medium rounded-lg py-2 text-xs transition-colors disabled:opacity-50"
+                  >
+                    Сбросить викторину
+                  </button>
+                  <button
+                    onClick={() => resetGame('filword')}
+                    disabled={busy}
+                    className="flex-1 bg-amber-600 hover:bg-amber-500 text-white font-medium rounded-lg py-2 text-xs transition-colors disabled:opacity-50"
+                  >
+                    Сбросить филворд
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+                    <div className="border-t border-slate-800 pt-3 mt-1">
+            <p className="text-slate-500 text-xs font-medium uppercase tracking-wider mb-2">
+              Массовый сброс результатов 
+            </p>
+          </div>
+
+          <div className="bg-slate-800 rounded-xl p-4 flex gap-2">
+            <button
+              onClick={() => resetGameAll('quiz')}
+              disabled={busy}
+              className="flex-1 bg-amber-700 hover:bg-amber-600 text-white font-medium rounded-lg py-2.5 text-xs transition-colors disabled:opacity-50"
+            >
+              ⚠️ Сбросить викторину у всех
+            </button>
+            <button
+              onClick={() => resetGameAll('filword')}
+              disabled={busy}
+              className="flex-1 bg-amber-700 hover:bg-amber-600 text-white font-medium rounded-lg py-2.5 text-xs transition-colors disabled:opacity-50"
+            >
+              ⚠️ Сбросить филворд у всех
+            </button>
+          </div>
         </div>
       )}
     </div>

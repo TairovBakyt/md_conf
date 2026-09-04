@@ -7,10 +7,12 @@ import { AdminRoute } from './components/routes/AdminRoute';
 
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const QuizGame = lazy(() => import('./pages/QuizGame'));
+const QuizRules = lazy(() => import('./pages/QuizRules'));
 const AdminPanel = lazy(() => import('./pages/AdminPanel'));
 const About = lazy(() => import('./pages/About'));
 const Prizes = lazy(() => import('./pages/Prizes'));
 const FilwordGame = lazy(() => import('./pages/FilwordGame'));
+const FilwordRules = lazy(() => import('./pages/FilwordRules'));
 const ScanAdmin = lazy(() => import('./pages/ScanAdmin'));
 const QuickRegister = lazy(() => import('./pages/QuickRegister'));
 
@@ -31,10 +33,12 @@ function App() {
         <Route path="/register" element={<QuickRegister />} />
         <Route path="/scan-admin" element={<ScanAdmin />} />
 
-        <Route element={<ProtectedRoute />}>
+                <Route element={<ProtectedRoute />}>
           <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/quiz" element={<QuizGame />} />
+          <Route path="/quiz-rules" element={<QuizRules />} />
+                    <Route path="/quiz" element={<QuizGame />} />
           <Route path="/prizes" element={<Prizes />} />
+          <Route path="/filword-rules" element={<FilwordRules />} />
           <Route path="/filword" element={<FilwordGame />} />
         </Route>
 

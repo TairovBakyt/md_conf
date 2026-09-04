@@ -116,6 +116,11 @@ export const ScanView: React.FC = () => {
   const [deductAmount, setDeductAmount] = useState('');
   const [deducting, setDeducting] = useState(false);
   const [deductError, setDeductError] = useState('');
+    // Массовое начисление/списание баллов всем участникам
+  const [bulkMode, setBulkMode] = useState<'add' | 'subtract' | null>(null);
+  const [bulkAmount, setBulkAmount] = useState('');
+  const [bulkLoading, setBulkLoading] = useState(false);
+  const [bulkResult, setBulkResult] = useState('');
 
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const html5QrcodeModuleRef = useRef<Html5QrcodeModule | null>(null);
@@ -471,6 +476,48 @@ export const ScanView: React.FC = () => {
     }
   };
 
+    // Начисляет или списывает баллы всем участникам разом. При списании
+  // баланс не уходит в минус — обрезается по нулю на бэкенде.
+  const handleBulkPoints = async () => {
+    if (!user || bulkLoading) return;
+
+    const n = Number(bulkAmount);
+    if (!bulkAmount.trim() || Number.isNaN(n) || n <= 0) return;
+
+    setBulkLoading(true);
+    setBulkResult('');
+
+    try {
+      const res = await fetch(`${API_URL}/api/admin/bulk-points`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          adminId: user.id,
+          amount: bulkMode === 'subtract' ? -n : n,
+        }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        setBulkResult(data.error || 'Не удалось изменить баллы');
+        return;
+      }
+
+      setBulkResult(
+        bulkMode === 'subtract'
+          ? `Списано ${n} баллов у ${data.affected} участников`
+          : `Начислено ${n} баллов ${data.affected} участникам`
+      );
+      setBulkMode(null);
+      setBulkAmount('');
+    } catch (err) {
+      console.error(err);
+      setBulkResult('Сервер недоступен');
+    } finally {
+      setBulkLoading(false);
+    }
+  };
+
   const handleScanNext = () => {
     isProcessingRef.current = false;
     setParticipant(null);
@@ -559,6 +606,32 @@ export const ScanView: React.FC = () => {
               >
                 Показать мой QR
               </button>
+
+              <div className="border-t border-slate-800 mt-2 pt-2 flex flex-col gap-2">
+                <button
+                  onClick={() => {
+                    setBulkMode('add');
+                    setBulkAmount('');
+                    setBulkResult('');
+                  }}
+                  className="w-full bg-slate-800 hover:bg-slate-700 text-emerald-400 font-medium rounded-lg py-3 text-sm transition-colors"
+                >
+                  Начислить баллы всем
+                </button>
+                <button
+                  onClick={() => {
+                    setBulkMode('subtract');
+                    setBulkAmount('');
+                    setBulkResult('');
+                  }}
+                  className="w-full bg-slate-800 hover:bg-slate-700 text-red-400 font-medium rounded-lg py-3 text-sm transition-colors"
+                >
+                  Списать баллы у всех
+                </button>
+                {bulkResult && (
+                  <p className="text-slate-400 text-xs text-center">{bulkResult}</p>
+                )}
+              </div>
             </div>
           )}
 
@@ -920,6 +993,55 @@ export const ScanView: React.FC = () => {
           >
             Попробовать снова
           </button>
+        </div>
+      )}
+
+      {bulkMode && (
+        <div
+          className="fixed inset-0 z-[60] bg-black/60 flex items-center justify-center px-6"
+          onClick={() => setBulkMode(null)}
+        >
+          <div
+            className="bg-slate-900 rounded-2xl w-full max-w-xs px-5 py-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="text-slate-100 text-base mb-1">
+              {bulkMode === 'add' ? 'Начислить баллы всем' : 'Списать баллы у всех'}
+            </p>
+            <p className="text-slate-500 text-xs mb-4">
+              {bulkMode === 'add'
+                ? 'Баллы получат все участники разом. Отменить нельзя.'
+                : 'Спишутся у всех участников. Если баллов меньше — останется 0. Отменить нельзя.'}
+            </p>
+
+            <input
+              type="text"
+              inputMode="numeric"
+              value={bulkAmount}
+              onChange={(e) => setBulkAmount(e.target.value.replace(/\D/g, ''))}
+              placeholder="Количество баллов"
+              autoFocus
+              className={`w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-slate-100 text-sm outline-none mb-4 ${
+                bulkMode === 'add' ? 'focus:border-emerald-500' : 'focus:border-red-500'
+              }`}
+            />
+
+            <div className="flex items-center justify-end gap-5">
+              <button
+                onClick={() => setBulkMode(null)}
+                className="py-2 text-indigo-400 hover:text-indigo-300 text-sm font-medium transition-colors"
+              >
+                Отмена
+              </button>
+              <button
+                onClick={handleBulkPoints}
+                disabled={!bulkAmount || bulkLoading}
+                className="py-2 text-indigo-400 hover:text-indigo-300 text-sm font-medium transition-colors disabled:opacity-40"
+              >
+                {bulkLoading ? 'Применяем...' : bulkMode === 'add' ? 'Начислить' : 'Списать'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

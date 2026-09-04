@@ -209,6 +209,28 @@ const handleAnswer = async (optionIndex: number) => {
             В комнате ожидания: <span className="text-indigo-400 font-semibold">{lobbyCount}</span>
           </p>
         </div>
+
+        <div className="w-full max-w-sm bg-slate-950 rounded-2xl p-5 mt-2 text-left">
+          <p className="text-slate-100 text-sm font-semibold mb-3">Пока ждём — правила</p>
+          <ul className="text-slate-300 text-sm leading-relaxed space-y-2.5">
+            <li className="flex gap-2">
+              <span className="text-indigo-400 shrink-0">•</span>
+              20 вопросов, все отвечают одновременно. На каждый — 10 секунд.
+            </li>
+            <li className="flex gap-2">
+              <span className="text-indigo-400 shrink-0">•</span>
+              После ответа сразу видно, кто прав, и топ-10 лидеров на текущий момент.
+            </li>
+            <li className="flex gap-2">
+              <span className="text-amber-400 shrink-0">•</span>
+              Пройдёшь все 20 без единой ошибки — бонус +5 баллов и достижение «Senior Developer».
+            </li>
+            <li className="flex gap-2">
+              <span className="text-slate-500 shrink-0">•</span>
+              Не успел присоединиться до старта — в этом раунде не участвуешь, баллы не начисляются.
+            </li>
+          </ul>
+        </div>
       </div>
     );
   }
