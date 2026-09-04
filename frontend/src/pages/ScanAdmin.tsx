@@ -31,8 +31,15 @@ export const ScanAdmin: React.FC = () => {
 
   const [screen, setScreen] = useState<ScreenState>('scanning');
   const [adminId, setAdminId] = useState<string | null>(null);
-  const [name, setName] = useState('');
+    const [name, setName] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
+
+  // Галочка "у меня уже есть аккаунт" — переключает экран с регистрации
+  // на вход: появляется поле PIN, и вместо создания нового профиля
+  // человек попадает в свой существующий.
+  const [hasAccount, setHasAccount] = useState(false);
+  const [loginPin, setLoginPin] = useState('');
+  const [formError, setFormError] = useState('');
   const [cameraError, setCameraError] = useState('');
 
   const scannerRef = useRef<Html5Qrcode | null>(null);
@@ -193,6 +200,53 @@ export const ScanAdmin: React.FC = () => {
     }
   };
 
+    // Вход в существующий профиль прямо с экрана сканирования. Используем
+  // тот же /login, но 409 (PIN занят, имя другое) здесь трактуем как
+  // ошибку входа — регистрировать нового с этого экрана не нужно.
+  const handleLoginAndConnect = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim() || !loginPin.trim() || !adminId) return;
+
+    setFormError('');
+    setScreen('connecting');
+
+    try {
+      const res = await fetch(`${API_URL}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: name.trim(), pin: loginPin.trim().toLowerCase() }),
+      });
+      const data = await res.json();
+
+      if (res.status === 409) {
+        setFormError('Такой PIN есть, но имя не совпадает — проверьте написание');
+        setScreen('need-name');
+        return;
+      }
+
+      if (!res.ok) {
+        setFormError(data.error || 'Не удалось войти');
+        setScreen('need-name');
+        return;
+      }
+
+      // 201 означает, что профиль создался, а не нашёлся — значит человек
+      // ошибся с PIN. Не оставляем ему лишний пустой аккаунт молча.
+      if (res.status === 201) {
+        setFormError('Профиль с таким PIN не найден — проверьте PIN или снимите галочку');
+        setScreen('need-name');
+        return;
+      }
+
+      setUser(data);
+      await sendRequestScan(adminId, data.id, false, 'award');
+    } catch (err) {
+      console.error(err);
+      setErrorMsg('Сервер недоступен');
+      setScreen('error');
+    }
+  };
+
   const handleRetry = () => {
     setErrorMsg('');
     setCameraError('');
@@ -200,14 +254,22 @@ export const ScanAdmin: React.FC = () => {
     setScreen('scanning');
   };
 
-  if (screen === 'need-name') {
+    if (screen === 'need-name') {
     return (
       <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center gap-4 px-4 py-8">
         <div className="w-full max-w-sm bg-slate-950 rounded-2xl p-5 text-center">
           <span className="text-3xl block mb-3">👋</span>
-          <h1 className="text-slate-100 text-lg font-semibold mb-1">Добро пожаловать!</h1>
-          <p className="text-slate-400 text-sm mb-5">Напишите ваш ник</p>
-          <form onSubmit={handleRegisterAndConnect} className="flex flex-col gap-3">
+          <h1 className="text-slate-100 text-lg font-semibold mb-1">
+            {hasAccount ? 'С возвращением!' : 'Добро пожаловать!'}
+          </h1>
+          <p className="text-slate-400 text-sm mb-5">
+            {hasAccount ? 'Введите имя и ваш PIN' : 'Напишите ваш ник'}
+          </p>
+
+          <form
+            onSubmit={hasAccount ? handleLoginAndConnect : handleRegisterAndConnect}
+            className="flex flex-col gap-3"
+          >
             <input
               type="text"
               value={name}
@@ -217,12 +279,43 @@ export const ScanAdmin: React.FC = () => {
               className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-3 text-slate-100 text-base placeholder-slate-500 outline-none focus:border-indigo-500"
               autoComplete="off"
             />
+
+            {hasAccount && (
+              <input
+                type="text"
+                value={loginPin}
+                onChange={(e) => setLoginPin(e.target.value.replace(/[^0-9a-zA-Z]/g, ''))}
+                placeholder="Ваш PIN"
+                maxLength={6}
+                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-3 text-slate-100 text-base placeholder-slate-500 outline-none focus:border-indigo-500 tracking-[0.3em]"
+                autoComplete="off"
+              />
+            )}
+
+            <label className="flex items-center gap-2 text-left cursor-pointer">
+              <input
+                type="checkbox"
+                checked={hasAccount}
+                onChange={(e) => {
+                  setHasAccount(e.target.checked);
+                  setFormError('');
+                  setLoginPin('');
+                }}
+                className="w-4 h-4 accent-indigo-600"
+              />
+              <span className="text-slate-400 text-sm">У меня уже есть аккаунт</span>
+            </label>
+
+            {formError && (
+              <p className="text-red-400 text-xs text-left">{formError}</p>
+            )}
+
             <button
               type="submit"
-              disabled={!name.trim()}
+              disabled={!name.trim() || (hasAccount && !loginPin.trim())}
               className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-medium rounded-lg py-3 transition-colors"
             >
-              Начать
+              {hasAccount ? 'Войти' : 'Начать'}
             </button>
           </form>
         </div>
