@@ -182,7 +182,8 @@ router.post('/toggle-admin', async (req: Request, res: Response) => {
 
 // Участник сканирует QR админа — создаём запрос
 router.post('/request-scan', async (req: Request, res: Response) => {
-  const { adminId, participantId } = req.body;
+    const { adminId, participantId, kind } = req.body;
+  const scanKind = kind === 'register' ? 'register' : 'award';
 
   try {
     const adminCheck = await pool.query('SELECT is_admin FROM users WHERE id = $1', [adminId]);
@@ -195,9 +196,9 @@ router.post('/request-scan', async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Участник не найден' });
     }
 
-    await pool.query(
-      'INSERT INTO scan_requests (admin_id, participant_id) VALUES ($1, $2)',
-      [adminId, participantId]
+        await pool.query(
+      'INSERT INTO scan_requests (admin_id, participant_id, kind) VALUES ($1, $2, $3)',
+      [adminId, participantId, scanKind]
     );
 
     return res.json({ success: true });
@@ -212,9 +213,12 @@ router.get('/scan-requests/:adminId', async (req: Request, res: Response) => {
   const { adminId } = req.params;
 
   try {
-    const result = await pool.query(
+        const result = await pool.query(
       `SELECT id, participant_id FROM scan_requests
-       WHERE admin_id = $1 AND consumed = false
+       WHERE admin_id = $1
+         AND consumed = false
+         AND kind = 'award'
+         AND created_at > NOW() - INTERVAL '5 minutes'
        ORDER BY created_at ASC
        LIMIT 1`,
       [adminId]
@@ -373,8 +377,11 @@ router.post('/reset-pin', async (req: Request, res: Response) => {
 // скрытым PIN).
 router.get('/all-participants', async (req: Request, res: Response) => {
   try {
-    const result = await pool.query(
-      'SELECT id, username, pin_code, total_score FROM users WHERE is_admin = false ORDER BY username ASC'
+        const result = await pool.query(
+      `SELECT id, username, pin_code, total_score, reg_source, created_at
+       FROM users
+       WHERE is_admin = false
+       ORDER BY created_at DESC NULLS LAST, username ASC`
     );
     return res.json(result.rows);
   } catch (error) {
