@@ -15,31 +15,50 @@ export default function Auth() {
   const [showSosModal, setShowSosModal] = useState(false);
   const [sendingSos, setSendingSos] = useState(false);
 
+  // Бэкенд ответил 409: такие 4 цифры уже кем-то заняты. Возможно, человек
+  // забыл букву от своего PIN — переспрашиваем, прежде чем создавать дубль.
+  // Бэкенд ответил 409: PIN занят другим человеком — просим дописать символ.
+  const [needsExtraChar, setNeedsExtraChar] = useState(false);
+
   const { setUser } = useUser();
   const navigate = useNavigate();
 
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
+  const submitAuth = async () => {
     setError("");
+
+    const trimmedPin = pin.trim().toLowerCase();
+
+    if (!trimmedPin) {
+      setError("Введите PIN");
+      return;
+    }
+
+    if (!/^\d{4}[a-z0-9]*$/.test(trimmedPin)) {
+      setError("PIN начинается с 4 цифр");
+      return;
+    }
 
     if (!username.trim()) {
       setError("Введите имя пользователя");
       return;
     }
-    if (pin.length !== 4) {
-      setError("PIN должен состоять из 4 цифр");
-      return;
-    }
 
-    loading && setLoading(true);
+    setLoading(true);
     try {
       const response = await fetch(`${API_URL}/api/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, pin }),
+        body: JSON.stringify({ username, pin: trimmedPin }),
       });
 
       const data = await response.json();
+
+      if (response.status === 409 && data.needsExtraChar) {
+        setNeedsExtraChar(true);
+        setError(data.error);
+        setLoading(false);
+        return;
+      }
 
       if (!response.ok) {
         setError(data.error || "Не удалось войти");
@@ -48,6 +67,12 @@ export default function Auth() {
       }
 
       setUser(data);
+
+      // Система дописала символ, потому что выбранный PIN уже был занят —
+      // человек об этом не знает, надо показать ему итоговый PIN.
+      if (data.pinWasModified) {
+        sessionStorage.setItem("mdconf_new_pin", data.pin_code);
+      }
 
       if (data.is_admin) {
         navigate("/admin");
@@ -60,6 +85,11 @@ export default function Auth() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    submitAuth();
   };
 
   // Новая функция отправки сигнала SOS
@@ -120,8 +150,8 @@ export default function Auth() {
         </div>
 
         <p className="text-xs text-slate-500 text-center mb-4">
-          Регистрация и вход происходят в одной форме: если вы здесь впервые —
-          просто введите имя и придумайте PIN, профиль создастся автоматически.
+                    Впервые? Введите имя и придумайте 4 цифры — это будет ваш PIN. Если
+          уже регистрировались, введите то же имя и тот же PIN.
         </p>
 
         <form
@@ -142,11 +172,9 @@ export default function Auth() {
             />
           </div>
 
-                    <div>
+          <div>
             <div className="flex items-center justify-between mb-1.5">
-              <label className="text-sm text-slate-300">
-                PIN-код (4 цифры)
-              </label>
+              <label className="text-sm text-slate-300">PIN-код</label>
               <button
                 type="button"
                 onClick={() => setShowPin((v) => !v)}
@@ -186,17 +214,19 @@ export default function Auth() {
             </div>
             <input
               type={showPin ? "text" : "password"}
-              inputMode="numeric"
-              maxLength={4}
+              inputMode="text"
+              maxLength={needsExtraChar ? 6 : 4}
               value={pin}
-              onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
-              placeholder="••••"
+              onChange={(e) =>
+                setPin(e.target.value.replace(/[^0-9a-zA-Z]/g, ""))
+              }
+                            placeholder="••••"
               className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-slate-100 placeholder-slate-500 outline-none focus:border-indigo-500 transition-colors tracking-[0.3em]"
               autoComplete="off"
             />
             <p className="text-xs text-slate-500 mt-1.5">
-              Первый вход — придумайте PIN сами, он закрепится за вами.Запомните
-              имя пользователя и PIN!
+                            Запомните свой PIN — он понадобится для повторного входа. Всегда
+              можно посмотреть в разделе «Мой QR».
             </p>
           </div>
 
@@ -229,6 +259,38 @@ export default function Auth() {
           </button>
         </div>
       </div>
+
+      {/* {confirmCreate && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 w-full max-w-sm">
+            <h3 className="text-lg font-bold text-slate-100 mb-2">
+              Вы здесь впервые?
+            </h3>
+            <p className="text-slate-400 text-sm leading-relaxed mb-5">
+              Профиль с цифрами {pin} уже существует. Если вы регистрировались
+              раньше, ваш PIN выглядит как {pin} + буква — вернитесь и введите
+              его целиком. Если вы новый участник, создадим отдельный профиль.
+            </p>
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={() => setConfirmCreate(false)}
+                className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-2.5 rounded-xl text-sm transition-colors"
+              >
+                Я уже регистрировался — ввести букву
+              </button>
+              <button
+                onClick={() => {
+                  setConfirmCreate(false);
+                  submitAuth(true);
+                }}
+                className="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-2.5 rounded-xl text-sm transition-colors"
+              >
+                Я новый участник — создать профиль
+              </button>
+            </div>
+          </div>
+        </div>
+      )} */}
 
       {/* Модальное окно подтверждения отправки SOS */}
       {showSosModal && (

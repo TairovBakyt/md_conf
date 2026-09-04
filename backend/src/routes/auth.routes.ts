@@ -3,58 +3,170 @@ import { pool } from '../db';
 
 const router = Router();
 
+// PIN хранится и сравнивается в нижнем регистре: человек напишет 4353K,
+// а в базе лежит 4353k — иначе половина не войдёт.
+// Подбор: 4353a, 4353b ... 4353z, дальше 4353aa, 4353ab и так далее.
+const ALPHABET = 'abcdefghijklmnopqrstuvwxyz';
+
+async function buildUniquePin(digits: string): Promise<string> {
+  // Однобуквенные варианты
+  for (const letter of ALPHABET) {
+    const candidate = `${digits}${letter}`;
+    const check = await pool.query('SELECT id FROM users WHERE LOWER(pin_code) = $1', [candidate]);
+    if (check.rows.length === 0) return candidate;
+  }
+
+  // Все 26 заняты — переходим на две буквы
+  for (const first of ALPHABET) {
+    for (const second of ALPHABET) {
+      const candidate = `${digits}${first}${second}`;
+      const check = await pool.query('SELECT id FROM users WHERE LOWER(pin_code) = $1', [candidate]);
+      if (check.rows.length === 0) return candidate;
+    }
+  }
+
+  throw new Error('Не удалось подобрать свободный PIN');
+}
+
+async function generateUniqueId(): Promise<string> {
+  let newId = '';
+  let isUnique = false;
+  while (!isUnique) {
+    newId = Math.floor(1000 + Math.random() * 9000).toString();
+    const check = await pool.query('SELECT id FROM users WHERE id = $1', [newId]);
+    if (check.rows.length === 0) isUnique = true;
+  }
+  return newId;
+}
+
+// router.post('/login', async (req: Request, res: Response) => {
+//   const { username, pin } = req.body;
+
+//   if (!username || username.trim() === '') {
+//     return res.status(400).json({ error: 'Имя пользователя обязательно' });
+//   }
+
+//   const trimmedUsername = username.trim();
+
+//   if (!pin || !/^\d{4}$/.test(pin)) {
+//     return res.status(400).json({ error: 'PIN-код должен состоять из 4 цифр' });
+//   }
+
+//   try {
+//     // Сравниваем без учёта регистра — чтобы "Askar" и "askar" не считались
+//     // разными людьми и не плодили случайных дублей с похожими именами.
+//     const userCheck = await pool.query(
+//       'SELECT * FROM users WHERE LOWER(username) = LOWER($1)',
+//       [trimmedUsername]
+//     );
+
+//     if (userCheck.rows.length > 0) {
+//       const existingUser = userCheck.rows[0];
+
+//       if (existingUser.pin_code !== pin) {
+//         return res.status(401).json({
+//           error: 'Такое имя уже зарегистрировано, но PIN не совпадает. Если это не ваш аккаунт — выберите другое имя, если ваш — обратитесь к администратору для сброса PIN.',
+//         });
+//       }
+
+//       return res.json(existingUser);
+//     } else {
+//       let newId = '';
+//       let isUnique = false;
+
+//       // Генерируем 4-значный ID и проверяем его уникальность в базе данных
+//       while (!isUnique) {
+//         newId = Math.floor(1000 + Math.random() * 9000).toString(); // Случайное число от 1000 до 9999
+
+//         const idCheck = await pool.query('SELECT id FROM users WHERE id = $1', [newId]);
+//         if (idCheck.rows.length === 0) {
+//           isUnique = true;
+//         }
+//       }
+
+//             const newUser = await pool.query(
+//         'INSERT INTO users (id, username, total_score, pin_code, reg_source, created_at) VALUES ($1, $2, $3, $4, $5, NOW()) RETURNING *',
+//         [newId, trimmedUsername, 0, pin, 'manual']
+//       );
+
+//       return res.status(201).json(newUser.rows[0]);
+//     }
+//   } catch (error) {
+//     console.error(error);
+//     return res.status(500).json({ error: 'Ошибка сервера при авторизации' });
+//   }
+// });
+
+
+// Одна форма на вход и регистрацию. Решение принимается по данным:
+//   PIN свободен            -> регистрируем ровно с тем PIN, что ввели
+//   PIN занят, имя совпало  -> вход в этот профиль
+//   PIN занят, имя другое   -> это новый человек, просим дописать символ
+// Имя сравнивается без учёта регистра, PIN хранится в нижнем регистре.
 router.post('/login', async (req: Request, res: Response) => {
   const { username, pin } = req.body;
 
-  if (!username || username.trim() === '') {
-    return res.status(400).json({ error: 'Имя пользователя обязательно' });
+  if (!username || !username.trim()) {
+    return res.status(400).json({ error: 'Введите имя пользователя' });
+  }
+
+  if (!pin || typeof pin !== 'string' || !pin.trim()) {
+    return res.status(400).json({ error: 'Введите PIN' });
   }
 
   const trimmedUsername = username.trim();
+  const normalizedPin = pin.trim().toLowerCase();
 
-  if (!pin || !/^\d{4}$/.test(pin)) {
-    return res.status(400).json({ error: 'PIN-код должен состоять из 4 цифр' });
+  if (!/^\d{4}[a-z0-9]*$/.test(normalizedPin)) {
+    return res.status(400).json({ error: 'PIN начинается с 4 цифр' });
   }
 
   try {
-    // Сравниваем без учёта регистра — чтобы "Askar" и "askar" не считались
-    // разными людьми и не плодили случайных дублей с похожими именами.
-    const userCheck = await pool.query(
-      'SELECT * FROM users WHERE LOWER(username) = LOWER($1)',
-      [trimmedUsername]
+    const existing = await pool.query(
+      'SELECT * FROM users WHERE LOWER(pin_code) = $1',
+      [normalizedPin]
     );
 
-    if (userCheck.rows.length > 0) {
-      const existingUser = userCheck.rows[0];
+    // PIN свободен — регистрируем нового участника ровно с тем PIN,
+    // который он ввёл, ничего не дописывая.
+    if (existing.rows.length === 0) {
+      const newId = await generateUniqueId();
 
-      if (existingUser.pin_code !== pin) {
-        return res.status(401).json({
-          error: 'Такое имя уже зарегистрировано, но PIN не совпадает. Если это не ваш аккаунт — выберите другое имя, если ваш — обратитесь к администратору для сброса PIN.',
-        });
-      }
-
-      return res.json(existingUser);
-    } else {
-      let newId = '';
-      let isUnique = false;
-
-      // Генерируем 4-значный ID и проверяем его уникальность в базе данных
-      while (!isUnique) {
-        newId = Math.floor(1000 + Math.random() * 9000).toString(); // Случайное число от 1000 до 9999
-
-        const idCheck = await pool.query('SELECT id FROM users WHERE id = $1', [newId]);
-        if (idCheck.rows.length === 0) {
-          isUnique = true;
-        }
-      }
-
-            const newUser = await pool.query(
+      const newUser = await pool.query(
         'INSERT INTO users (id, username, total_score, pin_code, reg_source, created_at) VALUES ($1, $2, $3, $4, $5, NOW()) RETURNING *',
-        [newId, trimmedUsername, 0, pin, 'manual']
+        [newId, trimmedUsername, 0, normalizedPin, 'manual']
       );
 
       return res.status(201).json(newUser.rows[0]);
     }
+
+    const foundUser = existing.rows[0];
+
+    // PIN занят и имя совпадает — считаем, что возвращается владелец.
+    // Тёзка с теми же цифрами теоретически попадёт в чужой профиль, но
+    // вернувшихся на порядок больше, чем таких совпадений.
+    if (foundUser.username.trim().toLowerCase() === trimmedUsername.toLowerCase()) {
+      return res.json(foundUser);
+    }
+
+    // PIN занят, имя другое — это точно новый человек. Просим дописать
+    // ещё один символ; если и расширенный вариант занят, допишем сами.
+    if (normalizedPin.length >= 5) {
+      const autoPin = await buildUniquePin(normalizedPin);
+      const newId = await generateUniqueId();
+
+      const newUser = await pool.query(
+        'INSERT INTO users (id, username, total_score, pin_code, reg_source, created_at) VALUES ($1, $2, $3, $4, $5, NOW()) RETURNING *',
+        [newId, trimmedUsername, 0, autoPin, 'manual']
+      );
+
+      return res.status(201).json({ ...newUser.rows[0], pinWasModified: true });
+    }
+
+    return res.status(409).json({
+      needsExtraChar: true,
+      error: 'Этот PIN уже занят — допишите ещё один символ, чтобы он стал вашим',
+    });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ error: 'Ошибка сервера при авторизации' });
@@ -74,28 +186,32 @@ router.post('/quick-register', async (req: Request, res: Response) => {
   const trimmedUsername = username.trim();
 
   try {
-    let newId = '';
-    let isUniqueId = false;
-    while (!isUniqueId) {
-      newId = Math.floor(1000 + Math.random() * 9000).toString();
-      const idCheck = await pool.query('SELECT id FROM users WHERE id = $1', [newId]);
-      if (idCheck.rows.length === 0) isUniqueId = true;
-    }
 
-        let randomPin = '';
-    let isUniquePin = false;
-    let pinAttempts = 0;
+        const newId = await generateUniqueId();
+    const randomDigits = Math.floor(1000 + Math.random() * 9000).toString();
+    const randomPin = await buildUniquePin(randomDigits);
+    // let newId = '';
+    // let isUniqueId = false;
+    // while (!isUniqueId) {
+    //   newId = Math.floor(1000 + Math.random() * 9000).toString();
+    //   const idCheck = await pool.query('SELECT id FROM users WHERE id = $1', [newId]);
+    //   if (idCheck.rows.length === 0) isUniqueId = true;
+    // }
 
-    while (!isUniquePin && pinAttempts < 200) {
-      randomPin = Math.floor(1000 + Math.random() * 9000).toString();
-      const pinCheck = await pool.query('SELECT id FROM users WHERE pin_code = $1', [randomPin]);
-      if (pinCheck.rows.length === 0) isUniquePin = true;
-      pinAttempts++;
-    }
+    //     let randomPin = '';
+    // let isUniquePin = false;
+    // let pinAttempts = 0;
 
-    if (!isUniquePin) {
-      return res.status(500).json({ error: 'Не удалось подобрать свободный PIN — обратитесь к организатору' });
-    }
+    // while (!isUniquePin && pinAttempts < 200) {
+    //   randomPin = Math.floor(1000 + Math.random() * 9000).toString();
+    //   const pinCheck = await pool.query('SELECT id FROM users WHERE pin_code = $1', [randomPin]);
+    //   if (pinCheck.rows.length === 0) isUniquePin = true;
+    //   pinAttempts++;
+    // }
+
+    // if (!isUniquePin) {
+    //   return res.status(500).json({ error: 'Не удалось подобрать свободный PIN — обратитесь к организатору' });
+    // }
 
         const newUser = await pool.query(
       'INSERT INTO users (id, username, total_score, pin_code, reg_source, created_at) VALUES ($1, $2, $3, $4, $5, NOW()) RETURNING *',
